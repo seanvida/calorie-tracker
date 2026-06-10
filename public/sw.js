@@ -1,6 +1,6 @@
 // Minimal service worker for installability + offline app shell.
 // API responses are never cached — logged data must always be fresh.
-const CACHE = "thali-v2";
+const CACHE = "thali-v3";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {

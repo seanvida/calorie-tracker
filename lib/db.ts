@@ -228,6 +228,7 @@ interface ProfileRow {
   age: number | null;
   sex: string | null;
   activity: number | null;
+  onboarded: boolean;
 }
 
 function toProfile(r: ProfileRow): Profile {
@@ -242,6 +243,7 @@ function toProfile(r: ProfileRow): Profile {
     age: r.age,
     sex: (r.sex as Profile["sex"]) ?? null,
     activity: r.activity,
+    onboarded: r.onboarded,
   };
 }
 
@@ -256,8 +258,10 @@ export async function getProfile(): Promise<Profile> {
   return toProfile(row);
 }
 
-/** Upsert the profile. Only provided fields change. */
+/** Upsert the profile. Most fields are replaced; `onboarded` only ever moves
+ *  forward (COALESCE keeps it true once set, even on a partial save). */
 export async function saveProfile(p: Partial<Profile>): Promise<Profile> {
+  const onboarded = typeof p.onboarded === "boolean" ? p.onboarded : null;
   const [row] = await sql<ProfileRow[]>`
     UPDATE profile SET
       name           = ${p.name ?? null},
@@ -270,6 +274,7 @@ export async function saveProfile(p: Partial<Profile>): Promise<Profile> {
       age            = ${p.age ?? null},
       sex            = ${p.sex ?? null},
       activity       = ${p.activity ?? null},
+      onboarded      = COALESCE(${onboarded}, profile.onboarded),
       updated_at     = now()
     WHERE id = 1
     RETURNING *`;

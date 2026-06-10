@@ -40,6 +40,7 @@ export async function PUT(request: Request) {
     age: numOrNull(body.age),
     sex: body.sex === "male" || body.sex === "female" ? body.sex : null,
     activity: numOrNull(body.activity),
+    onboarded: typeof body.onboarded === "boolean" ? body.onboarded : undefined,
   });
   return NextResponse.json({ profile });
 }

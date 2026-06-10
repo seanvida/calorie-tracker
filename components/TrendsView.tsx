@@ -39,9 +39,11 @@ export default function TrendsView({ goal }: TrendsViewProps) {
   const logged = days.filter((d) => d.entries > 0);
   if (logged.length === 0) {
     return (
-      <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-8 text-center text-sm text-ink-3">
-        No history yet. Log a few meals and your trends will appear here.
-      </p>
+      <div className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-8 text-center">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-matcha-tint text-xl">📈</div>
+        <p className="text-sm font-semibold text-ink">Charts appear once you’ve logged a few days</p>
+        <p className="mt-1 text-sm text-ink-3">Keep logging your meals and you’ll see calories vs. goal and macro trends here.</p>
+      </div>
     );
   }
 

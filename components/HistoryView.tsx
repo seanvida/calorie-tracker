@@ -25,7 +25,13 @@ export default function HistoryView({ goal, onOpenDay }: HistoryViewProps) {
   if (error) return <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-6 text-center text-sm text-ink-3">{error}</p>;
   if (!days) return <div className="space-y-2">{[0, 1, 2, 3].map((i) => <div key={i} className="h-16 animate-pulse rounded-2xl bg-surface/60" />)}</div>;
   if (days.length === 0) {
-    return <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-8 text-center text-sm text-ink-3">No days logged yet. Your past days will show up here.</p>;
+    return (
+      <div className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-8 text-center">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-matcha-tint text-xl">🗓️</div>
+        <p className="text-sm font-semibold text-ink">No past days logged yet</p>
+        <p className="mt-1 text-sm text-ink-3">Your history builds as you go — log a meal today to get started.</p>
+      </div>
+    );
   }
 
   const today = todayKey();

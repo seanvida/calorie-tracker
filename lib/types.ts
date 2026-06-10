@@ -120,4 +120,6 @@ export interface Profile {
   sex: "male" | "female" | null;
   /** Activity multiplier (1.2 sedentary … 1.9 very active) for goal suggestion. */
   activity: number | null;
+  /** Whether the first-run welcome flow has been completed or skipped. */
+  onboarded: boolean;
 }

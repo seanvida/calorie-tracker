@@ -26,22 +26,13 @@ npm install      # first time only
 npm run dev      # Next.js at http://localhost:3000
 ```
 
-Other scripts: `npm run build`, `npm start`. No test/lint suite yet.
-
 ## Environment & secrets
 
-- Secrets live in `.env` (gitignored) — never commit it. Required keys:
-  - `GEMINI_API_KEY` — AI nutrition lookup (read via `process.env` in `lib/gemini.ts`).
-  - `DATABASE_URL` — Supabase Postgres connection string (read in `lib/db.ts`).
-    Use Supabase's **Transaction pooler** string (port 6543); works locally and
-    on Vercel. No keys are hardcoded anywhere.
-- `.env.example` holds placeholder values so the project is reproducible — copy
-  it to `.env` and fill in real values.
-- `.gitignore` ignores `.env` / `.env.*` (except `.env.example`), `node_modules/`,
-  `.next/`, and local DB files.
-- When deploying, set both env vars in the host's settings (e.g. Vercel), not in
-  the repo. First-time DB setup: run `supabase/schema.sql` once in the Supabase
-  SQL Editor (see `docs/` for the dated migration write-up).
+`.env` (gitignored; `.env.example` has placeholders). Required: `GEMINI_API_KEY`
+and `DATABASE_URL` (Supabase **Transaction pooler**, port 6543 — works locally +
+on Vercel; no keys hardcoded). `.gitignore` covers `.env*` (except the example),
+`node_modules/`, `.next/`. On a fresh DB, run `supabase/schema.sql` once in the
+Supabase SQL Editor; set both env vars in Vercel's project settings.
 
 ## Tech stack
 
@@ -72,6 +63,7 @@ components/
   TextPanel / PhotoPanel    AI add flows
   PendingPanel / PendingItemCard / ServingStepper   Review-before-commit editor
   BottomNav / DateNav / HistoryView / TrendsView / ProfileView   Tabs + views
+  Onboarding.tsx / InviteButton.tsx   First-run welcome + one-tap share invite
   PwaRegister.tsx           Service-worker registration
   Spinner.tsx / ErrorNote.tsx   Loading + error UI
 lib/
@@ -125,9 +117,16 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
   `/api/profile`). The hero's goal edit also `PUT`s the profile. Macro targets are
   `resolveMacroTargets` (explicit profile targets, else the 30/45/25 goal split).
   The calorie bar color comes from `calorieState` (green <90%, amber 90–100%, red >100%).
+- **First-run & empty states:** a skippable 3-step `Onboarding` overlay shows
+  when `profile.onboarded` is false (what the app does → name + goal → 3 ways to
+  add); finishing/skipping flips `onboarded` (preserved by `COALESCE` on saves) so
+  it never returns. Empty Day/History/Trends render friendly prompts (not blank
+  screens); a dismissible nudge appears while the goal is still the default 2000.
+- **Invite:** `InviteButton` opens the device share sheet (`navigator.share`)
+  with `window.location.origin`, falling back to clipboard copy. No tokens.
 - **PWA:** `public/manifest.webmanifest` + generated icons + `public/sw.js`
-  (registered by `PwaRegister`; network-first shell, never caches `/api`) make it
-  installable. `app/layout.tsx` sets the manifest, theme color, and apple-touch icon.
+  (registered by `PwaRegister`; network-first shell, never caches `/api`; bump the
+  `CACHE` version on shell changes). `app/layout.tsx` sets manifest + theme + icons.
 - **Catalogue search (two layers):** quick-add with an empty box browses the
   curated Indian core (`lib/foods.ts`, no fetch). Typing hits
   `GET /api/foods?q=` → `searchFoods` queries Supabase first (tokenized: every
@@ -180,15 +179,21 @@ browse (and is merged into the seed).
 `ai_cache`: `kind` ('text'|'image'), `cache_key` (unique with kind), `result`
 (jsonb) — caches Gemini responses. `ai_usage`: `day`, `route`, `calls` — daily
 call counter. `profile`: single row (`id`=1) — `name`, `calorie_goal`,
-`{protein,carbs,fat}_target`, `height_cm`/`weight_kg`/`age`/`sex`/`activity`.
+`{protein,carbs,fat}_target`, body stats, and `onboarded` (first-run flag).
 
 ## Deploy
 
 Live on **Vercel** (auto-deploys on push to `main`). Env vars set in the Vercel
 project: `GEMINI_API_KEY`, `DATABASE_URL`. PWA-installable from the live URL.
 
+> ⚠️ **Still single-tenant — no auth/RLS yet.** One global `profile` +
+> `log_entries`, shared by anyone who opens the URL: onboarding shows once, and
+> **Invite shares the same data, not a private space.** Per-user isolation needs
+> Supabase Auth + `user_id` + RLS (the next step before promoting invites).
+
 ## Next steps
 
+- **Auth + RLS (biggest)** — Supabase Auth + `user_id` + row-level security to
+  make profile/log per-user. Prerequisite for the invite to mean private spaces.
 - **Review AI-sourced foods** — admin view over `foods WHERE NOT reviewed`.
-- **Barcode scanning**; **accounts / multi-user**; a **native app** wrapper.
-- **User preferences** (units, theme); custom foods; a test suite.
+- **Barcode scanning**; a **native app** wrapper; **prefs** (units, theme); tests.

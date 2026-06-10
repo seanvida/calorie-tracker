@@ -32,6 +32,7 @@ import DateNav from "@/components/DateNav";
 import HistoryView from "@/components/HistoryView";
 import TrendsView from "@/components/TrendsView";
 import ProfileView from "@/components/ProfileView";
+import Onboarding from "@/components/Onboarding";
 
 const DEFAULT_PROFILE: Profile = {
   name: null,
@@ -44,6 +45,8 @@ const DEFAULT_PROFILE: Profile = {
   age: null,
   sex: null,
   activity: null,
+  // If the profile can't load, don't trap the user in onboarding they can't save.
+  onboarded: true,
 };
 
 type Mode = "quick" | "describe" | "photo";
@@ -85,6 +88,7 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("quick");
   const [mealTarget, setMealTarget] = useState<MealCategory>("Snack");
   const [query, setQuery] = useState("");
+  const [goalNudgeDismissed, setGoalNudgeDismissed] = useState(false);
 
   // Catalogue search (server-side): hits Supabase first, Gemini on a miss.
   const [results, setResults] = useState<CatalogFood[]>([]);
@@ -379,6 +383,13 @@ export default function Home() {
     addRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  function scrollToAdd() {
+    addRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  const isToday = selectedDate === todayKey();
+  const showGoalNudge = goal === DEFAULT_GOAL && !goalNudgeDismissed && profile?.onboarded;
+
   return (
     <div className="min-h-screen pb-24">
       <AppHeader />
@@ -420,6 +431,19 @@ export default function Home() {
         <DateNav date={selectedDate} onChange={setSelectedDate} />
         <DailySummary totals={totals} goal={goal} onGoalChange={updateGoal} targets={targets} />
 
+        {showGoalNudge && (
+          <div className="flex items-center gap-3 rounded-2xl border border-matcha/30 bg-matcha-tint px-4 py-3">
+            <span className="text-lg">🎯</span>
+            <p className="flex-1 text-sm text-matcha-deep">
+              You’re on the default <span className="nums font-semibold">2,000</span> kcal goal.{" "}
+              <button onClick={() => setView("profile")} className="font-semibold underline underline-offset-2">
+                Set your own goal
+              </button>
+            </p>
+            <button onClick={() => setGoalNudgeDismissed(true)} aria-label="Dismiss" className="text-matcha-deep/60 transition hover:text-matcha-deep">✕</button>
+          </div>
+        )}
+
         {/* Meal-grouped log */}
         <div className="space-y-6">
           {loading ? (
@@ -427,6 +451,21 @@ export default function Home() {
               {[0, 1, 2].map((i) => (
                 <div key={i} className="h-16 animate-pulse rounded-2xl border border-line bg-surface/60" />
               ))}
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="animate-fade-up rounded-3xl border border-dashed border-line-2 bg-surface/50 p-8 text-center">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-matcha-tint text-2xl">🍽️</div>
+              <p className="font-display text-lg font-semibold text-ink">
+                {isToday ? "Let’s log your first meal" : "Nothing logged on this day"}
+              </p>
+              <p className="mx-auto mt-1 max-w-xs text-sm text-ink-3">
+                {isToday
+                  ? "Search a food, describe your meal, or snap a photo — it only takes a few seconds."
+                  : "Add something below, or jump back to today."}
+              </p>
+              <button onClick={scrollToAdd} className="mt-4 rounded-xl bg-matcha px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-matcha-deep active:scale-95">
+                Add {isToday ? "your first meal" : "a meal"}
+              </button>
             </div>
           ) : (
             MEALS.map((meal, i) => (
@@ -544,6 +583,11 @@ export default function Home() {
       </main>
 
       <BottomNav view={view} onChange={setView} />
+
+      {/* First-run welcome — only for a brand-new (not-yet-onboarded) profile. */}
+      {profile && !profile.onboarded && (
+        <Onboarding profile={profile} onDone={setProfile} />
+      )}
     </div>
   );
 }

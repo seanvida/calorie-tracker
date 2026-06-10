@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Profile } from "@/lib/types";
 import { macroTargets, resolveMacroTargets, suggestGoal } from "@/lib/nutrition";
+import InviteButton from "./InviteButton";
 
 interface ProfileViewProps {
   profile: Profile;
@@ -111,10 +112,15 @@ export default function ProfileView({ profile, onSaved }: ProfileViewProps) {
       <button
         onClick={save}
         disabled={saving}
-        className="sticky bottom-20 w-full rounded-2xl bg-matcha px-4 py-3 text-sm font-semibold text-paper shadow-lift transition hover:bg-matcha-deep active:scale-[0.99] disabled:opacity-50"
+        className="w-full rounded-2xl bg-matcha px-4 py-3 text-sm font-semibold text-paper shadow-lift transition hover:bg-matcha-deep active:scale-[0.99] disabled:opacity-50"
       >
         {saving ? "Saving…" : saved ? "Saved ✓" : "Save profile"}
       </button>
+
+      <Section title="Share">
+        <p className="text-xs text-ink-3">Send a friend or family member the app so they can track too.</p>
+        <InviteButton />
+      </Section>
     </div>
   );
 }

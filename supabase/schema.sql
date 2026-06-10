@@ -64,6 +64,7 @@ create table if not exists profile (
   calorie_goal   integer not null default 2000,
   protein_target integer, carbs_target integer, fat_target integer,
   height_cm      real, weight_kg real, age integer, sex text, activity real,
+  onboarded      boolean not null default false,   -- first-run welcome shown/skipped?
   updated_at     timestamptz not null default now(),
   constraint profile_singleton check (id = 1)
 );
