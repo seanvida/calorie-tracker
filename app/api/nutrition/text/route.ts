@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { analyzeNutrition, GeminiError } from "@/lib/gemini";
+import { getAiCache, recordAiUsage, setAiCache } from "@/lib/db";
+import { clientKey, dedupe, rateLimit, tooManyRequests } from "@/lib/ai-guard";
 
 // Gemini call runs server-side on the Node.js runtime.
 export const runtime = "nodejs";
@@ -8,6 +10,9 @@ export const runtime = "nodejs";
  * POST /api/nutrition/text
  * Body: { "description": "grilled chicken with rice and salad" }
  * Returns structured NutritionResult estimated by Gemini.
+ *
+ * Guardrails: rate-limited per IP, de-duplicated over a short window, and cached
+ * in Supabase so the same description never hits the API twice.
  */
 export async function POST(request: Request) {
   let body: { description?: unknown };
@@ -32,10 +37,27 @@ export async function POST(request: Request) {
     );
   }
 
+  // Normalize so trivially different inputs share a cache slot.
+  const key = description.toLowerCase().replace(/\s+/g, " ").trim();
+
+  // Cache hit → no API call.
+  const cached = await getAiCache("text", key);
+  if (cached) return NextResponse.json(cached);
+
+  // Rate limit only the path that actually calls Gemini.
+  const rl = rateLimit(clientKey(request));
+  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+
   try {
-    const result = await analyzeNutrition([
-      { text: `Estimate the nutrition for this meal: ${description}` },
-    ]);
+    const result = await dedupe(`text:${key}`, 10_000, async () => {
+      const r = await analyzeNutrition([
+        { text: `Estimate the nutrition for this meal: ${description}` },
+      ]);
+      await setAiCache("text", key, r);
+      void recordAiUsage("text");
+      console.log(`[ai] text call — "${key.slice(0, 60)}"`);
+      return r;
+    });
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof GeminiError) {

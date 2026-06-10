@@ -45,6 +45,22 @@ export interface CatalogFood extends Macros {
   source: "seed" | "gemini";
 }
 
+/**
+ * A food staged in the review-before-commit panel. Its calories/macros are the
+ * *current totals* (already scaled by `servings`); nothing is saved until the
+ * user presses "Add meal".
+ */
+export interface PendingItem extends Macros {
+  key: string;
+  name: string;
+  serving: string;
+  /** Serving multiplier the user adjusts in 0.5 steps (1, 1.5, 2, …). */
+  servings: number;
+  calories: number;
+  /** 'catalog' = from the food list/search; 'ai' = a Gemini estimate (flagged). */
+  source: "catalog" | "ai";
+}
+
 /** Which meal an entry belongs to. */
 export type MealCategory = "Breakfast" | "Lunch" | "Dinner" | "Snack";
 

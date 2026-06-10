@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { analyzeNutrition, GeminiError } from "@/lib/gemini";
+import { getAiCache, recordAiUsage, setAiCache } from "@/lib/db";
+import { clientKey, dedupe, rateLimit, tooManyRequests } from "@/lib/ai-guard";
 
 export const runtime = "nodejs";
 
@@ -65,15 +68,30 @@ export async function POST(request: Request) {
     );
   }
 
+  // Content-hash cache: re-uploading the same photo never re-bills.
+  const hash = createHash("sha256").update(data).digest("hex");
+  const cached = await getAiCache("image", hash);
+  if (cached) return NextResponse.json(cached);
+
+  // Rate limit only the path that actually calls Gemini.
+  const rl = rateLimit(clientKey(request));
+  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+
   try {
-    const result = await analyzeNutrition([
-      {
-        text:
-          "Identify the foods in this meal photo and estimate their nutrition. " +
-          "If portion size is unclear, assume a typical serving and note the assumption.",
-      },
-      { inlineData: { mimeType, data } },
-    ]);
+    const result = await dedupe(`image:${hash}`, 10_000, async () => {
+      const r = await analyzeNutrition([
+        {
+          text:
+            "Identify the foods in this meal photo and estimate their nutrition. " +
+            "If portion size is unclear, assume a typical serving and note the assumption.",
+        },
+        { inlineData: { mimeType, data } },
+      ]);
+      await setAiCache("image", hash, r);
+      void recordAiUsage("image");
+      console.log(`[ai] image call — ${hash.slice(0, 12)}`);
+      return r;
+    });
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof GeminiError) {

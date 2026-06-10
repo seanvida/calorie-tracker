@@ -9,9 +9,11 @@ import {
   type DisplayFood,
   type LogEntry,
   type MealCategory,
+  type PendingItem,
 } from "@/lib/types";
 import type { NutritionItem, NutritionResult } from "@/lib/gemini";
 import { DEFAULT_GOAL, mealForHour } from "@/lib/nutrition";
+import { compressImage } from "@/lib/image";
 import AppHeader from "@/components/AppHeader";
 import DailySummary from "@/components/DailySummary";
 import MealSection from "@/components/MealSection";
@@ -21,7 +23,7 @@ import FoodList from "@/components/FoodList";
 import FoodCard from "@/components/FoodCard";
 import TextPanel from "@/components/TextPanel";
 import PhotoPanel from "@/components/PhotoPanel";
-import AiResultPanel from "@/components/AiResultPanel";
+import PendingPanel from "@/components/PendingPanel";
 import ErrorNote from "@/components/ErrorNote";
 
 function todayKey(): string {
@@ -57,7 +59,6 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("quick");
   const [mealTarget, setMealTarget] = useState<MealCategory>("Snack");
   const [query, setQuery] = useState("");
-  const [busyName, setBusyName] = useState<string | null>(null);
 
   // Catalogue search (server-side): hits Supabase first, Gemini on a miss.
   const [results, setResults] = useState<CatalogFood[]>([]);
@@ -65,15 +66,18 @@ export default function Home() {
   const [resultSource, setResultSource] = useState<"local" | "gemini" | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
 
+  // Review-before-commit: every add path stages items here; nothing saves until
+  // the user presses "Add meal" in the PendingPanel.
+  const [pending, setPending] = useState<PendingItem[]>([]);
+  const [aiNote, setAiNote] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
   // AI lookup state (shared by describe + photo).
   const [description, setDescription] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [aiResult, setAiResult] = useState<NutritionResult | null>(null);
-  const [aiSelected, setAiSelected] = useState<Set<number>>(new Set());
-  const [aiAdding, setAiAdding] = useState(false);
 
   const addRef = useRef<HTMLDivElement>(null);
   const day = todayKey();
@@ -173,20 +177,10 @@ export default function Home() {
     return false;
   }
 
-  async function addFood(food: DisplayFood) {
-    setBusyName(food.name);
-    try {
-      await logFood({
-        foodName: food.name,
-        serving: food.serving,
-        calories: food.calories,
-        protein: food.protein,
-        carbs: food.carbs,
-        fat: food.fat,
-      });
-    } finally {
-      setBusyName(null);
-    }
+  /** Quick-add / search: stage a catalogue food into the review panel. */
+  function addCatalogToPending(food: DisplayFood) {
+    setPending((prev) => [...prev, toPending(food, "catalog")]);
+    setAiNote(null);
   }
 
   async function deleteEntry(id: number) {
@@ -223,16 +217,15 @@ export default function Home() {
     }
   }
 
-  // ---- AI flows ----
-  function resetAi() {
-    setAiResult(null);
-    setAiSelected(new Set());
-    setAiError(null);
-  }
-
-  function showResult(result: NutritionResult) {
-    setAiResult(result);
-    setAiSelected(new Set(result.items.map((_, i) => i)));
+  // ---- AI flows: lookups stage editable items into `pending` ----
+  function showItems(result: NutritionResult): boolean {
+    if (!result.items || result.items.length === 0) {
+      setAiError(result.note || "No foods were identified. Try rephrasing.");
+      return false;
+    }
+    setPending(result.items.map((it) => toPending(it, "ai")));
+    setAiNote(result.note || null);
+    return true;
   }
 
   async function runTextLookup() {
@@ -240,7 +233,6 @@ export default function Home() {
     if (!text) return;
     setAiLoading(true);
     setAiError(null);
-    setAiResult(null);
     try {
       const res = await fetch("/api/nutrition/text", {
         method: "POST",
@@ -249,7 +241,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Lookup failed.");
-      showResult(data as NutritionResult);
+      showItems(data as NutritionResult);
     } catch (e) {
       setAiError(friendlyError(e));
     } finally {
@@ -261,14 +253,13 @@ export default function Home() {
     if (!imageFile) return;
     setAiLoading(true);
     setAiError(null);
-    setAiResult(null);
     try {
       const form = new FormData();
       form.append("image", imageFile);
       const res = await fetch("/api/nutrition/image", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Analysis failed.");
-      showResult(data as NutritionResult);
+      showItems(data as NutritionResult);
     } catch (e) {
       setAiError(friendlyError(e));
     } finally {
@@ -276,43 +267,61 @@ export default function Home() {
     }
   }
 
-  function toggleSelected(index: number) {
-    setAiSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
+  // ---- Review panel: edit, remove, and finally commit ----
+  function updatePending(key: string, patch: Partial<PendingItem>) {
+    setPending((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
   }
 
-  async function addSelected() {
-    if (!aiResult) return;
-    const chosen = aiResult.items.filter((_, i) => aiSelected.has(i));
-    if (chosen.length === 0) return;
-    setAiAdding(true);
+  function removePending(key: string) {
+    setPending((prev) => prev.filter((it) => it.key !== key));
+  }
+
+  function clearPending() {
+    setPending([]);
+    setAiNote(null);
+    setAiError(null);
+  }
+
+  /** The only path that writes to the log — runs when "Add meal" is pressed. */
+  async function commitPending() {
+    if (pending.length === 0) return;
+    setAdding(true);
     setAiError(null);
     try {
       let failures = 0;
-      for (const item of chosen) {
-        const ok = await logFood(toPayload(item));
+      for (const it of pending) {
+        const label =
+          it.servings === 1 ? it.serving : `${fmtServings(it.servings)}× ${it.serving}`;
+        const ok = await logFood({
+          foodName: it.name.trim() || "Food",
+          serving: label,
+          calories: it.calories,
+          protein: it.protein,
+          carbs: it.carbs,
+          fat: it.fat,
+        });
         if (!ok) failures++;
       }
       if (failures > 0) {
-        setAiError(`Saved ${chosen.length - failures} of ${chosen.length}; some items failed.`);
+        setAiError(`Saved ${pending.length - failures} of ${pending.length}; some items failed.`);
+      } else {
+        setPending([]);
+        setAiNote(null);
+        setDescription("");
+        clearImage();
+        setQuery("");
       }
-      resetAi();
-      setDescription("");
-      clearImage();
     } finally {
-      setAiAdding(false);
+      setAdding(false);
     }
   }
 
-  function selectImage(file: File) {
+  async function selectImage(file: File) {
     if (imagePreview) URL.revokeObjectURL(imagePreview);
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
-    resetAi();
+    const compressed = await compressImage(file);
+    setImageFile(compressed);
+    setImagePreview(URL.createObjectURL(compressed));
+    setAiError(null);
   }
 
   function clearImage() {
@@ -323,7 +332,7 @@ export default function Home() {
 
   function switchMode(next: Mode) {
     setMode(next);
-    resetAi();
+    setAiError(null);
   }
 
   /** "+ Add" from a meal section: aim the add tool at that meal and scroll to it. */
@@ -394,7 +403,7 @@ export default function Home() {
               <div className="max-h-[56vh] overflow-y-auto rounded-2xl border border-line bg-surface/40 p-3 [scrollbar-color:#DED3C0_transparent] [scrollbar-width:thin]">
                 {!query.trim() ? (
                   // Empty query: browse the curated Indian core, grouped by category.
-                  <FoodList foods={FOODS} onAdd={addFood} busyName={busyName} />
+                  <FoodList foods={FOODS} onAdd={addCatalogToPending} />
                 ) : searching ? (
                   <div className="flex items-center justify-center gap-2 py-10 text-sm text-ink-3">
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-line-2 border-t-matcha" />
@@ -417,12 +426,7 @@ export default function Home() {
                     )}
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {results.map((food) => (
-                        <FoodCard
-                          key={food.id}
-                          food={food}
-                          onAdd={addFood}
-                          busy={busyName === food.name}
-                        />
+                        <FoodCard key={food.id} food={food} onAdd={addCatalogToPending} />
                       ))}
                     </div>
                   </div>
@@ -434,17 +438,6 @@ export default function Home() {
           {mode === "describe" && (
             <div className="space-y-4">
               <TextPanel value={description} onChange={setDescription} onSubmit={runTextLookup} loading={aiLoading} />
-              {aiError && <ErrorNote message={aiError} onDismiss={() => setAiError(null)} />}
-              {aiResult && (
-                <AiResultPanel
-                  result={aiResult}
-                  selected={aiSelected}
-                  onToggle={toggleSelected}
-                  onAdd={addSelected}
-                  onDiscard={resetAi}
-                  adding={aiAdding}
-                />
-              )}
             </div>
           )}
 
@@ -458,19 +451,21 @@ export default function Home() {
                 onClear={clearImage}
                 loading={aiLoading}
               />
-              {aiError && <ErrorNote message={aiError} onDismiss={() => setAiError(null)} />}
-              {aiResult && (
-                <AiResultPanel
-                  result={aiResult}
-                  selected={aiSelected}
-                  onToggle={toggleSelected}
-                  onAdd={addSelected}
-                  onDiscard={resetAi}
-                  adding={aiAdding}
-                />
-              )}
             </div>
           )}
+
+          {aiError && <ErrorNote message={aiError} onDismiss={() => setAiError(null)} />}
+
+          {/* Review-before-commit: shared by quick-add, describe, and photo. */}
+          <PendingPanel
+            items={pending}
+            note={aiNote}
+            onChangeItem={updatePending}
+            onRemoveItem={removePending}
+            onCommit={commitPending}
+            onClear={clearPending}
+            adding={adding}
+          />
         </section>
       </main>
 
@@ -481,15 +476,32 @@ export default function Home() {
   );
 }
 
-function toPayload(item: NutritionItem): LogPayload {
+let keySeq = 0;
+function genKey(): string {
+  return `p${Date.now().toString(36)}-${keySeq++}`;
+}
+
+/** Build a review item from a catalogue food or an AI-identified item. */
+function toPending(
+  food: DisplayFood | NutritionItem,
+  source: PendingItem["source"],
+): PendingItem {
   return {
-    foodName: item.name,
-    serving: item.serving,
-    calories: item.calories,
-    protein: item.protein,
-    carbs: item.carbs,
-    fat: item.fat,
+    key: genKey(),
+    name: food.name,
+    serving: food.serving || "1 serving",
+    servings: 1,
+    calories: food.calories,
+    protein: food.protein,
+    carbs: food.carbs,
+    fat: food.fat,
+    source,
   };
+}
+
+/** Format a serving multiplier compactly: 1, 1.5, 2 … */
+function fmtServings(n: number): string {
+  return Number.isInteger(n) ? `${n}` : n.toFixed(1);
 }
 
 function friendlyError(e: unknown): string {

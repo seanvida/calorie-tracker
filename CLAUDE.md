@@ -9,10 +9,12 @@ everyday Indian food. You log meals three ways — quick-add from a **searchable
 catalogue of thousands of foods** (Indian + everyday + packaged, with an AI
 fallback that grows the catalogue on misses), a plain-English description, or a
 meal photo — and watch a daily calorie goal, a traffic-light progress bar, and
-macro bars update live. Entries are
+macro bars update live. **Nothing is logged until you review and edit it** in a
+preview card (name, 0.5-step servings with live recompute, macros). Entries are
 grouped by meal (Breakfast / Lunch / Dinner / Snack), each with an **editable
 serving count**, and persist in a hosted **Supabase (Postgres)** database — the
-same data on every device, surviving deploys. No login, no accounts (yet).
+same data on every device, surviving deploys. AI calls are guarded by caching,
+de-duplication, image compression, and rate limiting. No login, no accounts (yet).
 
 ## Run it
 
@@ -68,14 +70,17 @@ components/
   FoodEntryCard.tsx       Card-style logged entry + serving (qty) stepper
   MealPicker.tsx          Breakfast/Lunch/Dinner/Snack target selector
   SearchBar / FoodCard / FoodList   Quick-add catalog
-  TextPanel / PhotoPanel / AiResultPanel   AI add flows
+  TextPanel / PhotoPanel                   AI add flows
+  PendingPanel / PendingItemCard / ServingStepper   Review-before-commit editor
   Spinner.tsx / ErrorNote.tsx              Loading + error UI
 lib/
-  types.ts                Food, LogEntry, MealCategory, etc.
-  db.ts                   Supabase client + queries: log + catalogue search/cache
+  types.ts                Food, LogEntry, CatalogFood, PendingItem, etc.
+  db.ts                   Supabase client + queries: log, catalogue, AI cache/usage
   foods.ts                Static curated Indian core (also the empty-search browse)
   gemini.ts               Gemini REST wrapper + nutrition schema/types
-  nutrition.ts            Goal/macro targets, traffic-light state, meal-by-hour
+  nutrition.ts            Goal/macro targets, traffic-light, meal-by-hour, validateNutrition
+  ai-guard.ts             In-memory rate limit + short-window request de-dup
+  image.ts                Client-side photo downscale/compress before upload
 scripts/
   gen-foods-seed.mjs      Builds foods_seed.json from USDA SR Legacy + Indian core
   seed-foods.mjs          Idempotently seeds the foods table (node scripts/seed-foods.mjs)
@@ -130,9 +135,24 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
   unique `lower(name)` index prevents duplicates. `reviewed=false` is the review
   queue for AI-sourced entries (seed rows are `reviewed=true`).
 - **AI lookup:** `lib/gemini.ts` uses Gemini structured output
-  (`responseSchema`) so responses are valid JSON. Both routes return the same
-  `NutritionResult`; `AiResultPanel` shows items with checkboxes to confirm
-  before logging. Totals recomputed server-side; errors mapped to HTTP codes.
+  (`responseSchema`) so responses are valid JSON. The text/image routes return a
+  `NutritionResult`; errors are mapped to HTTP codes.
+- **Review before commit:** all three add paths funnel into one `pending`
+  list rendered by `PendingPanel`. Quick-add/search **append** an item;
+  text/photo **replace** with the detected items. Each `PendingItemCard` is fully
+  editable — name, serving label, a `ServingStepper` (0.5 steps), and macro
+  inputs that hold the *totals* and recompute live as servings change. **Nothing
+  is written** until "Add meal", which loops `logFood` (baking the multiplier into
+  the serving label). AI-sourced items run `validateNutrition` and show ⚠ flags
+  for implausible values (absurd calories, macro/calorie mismatch) while staying
+  editable. Photo results with multiple foods can be edited/removed individually.
+- **Cost & abuse guardrails** (every Gemini path): a persistent Supabase cache
+  (`ai_cache`, keyed by normalized text or image sha256) means the same input
+  never bills twice; an in-memory short-window de-dup (`lib/ai-guard.ts`) shares
+  concurrent identical calls; a per-IP fixed-window rate limit (20/min) guards
+  the API paths (local search hits stay unthrottled); photos are downscaled to
+  ~1024px JPEG client-side (`lib/image.ts`) before upload; and `recordAiUsage`
+  increments a daily `ai_usage` counter so real call volume is visible.
 - **Database:** `lib/db.ts` connects to Supabase Postgres via `DATABASE_URL`
   using the `postgres` driver (tagged-template queries → parameterized + safe).
   All query functions are **async**; the API routes `await` them. The client is
@@ -161,6 +181,10 @@ and `ssl: "require"`.
 (bool), `created_at`. Seeded by `scripts/seed-foods.mjs`; grown by the search
 fallback. `lib/foods.ts` stays as the curated Indian core for the empty-search
 browse (and is merged into the seed).
+
+`ai_cache`: `kind` ('text'|'image'), `cache_key` (unique with kind), `result`
+(jsonb), `created_at` — caches Gemini responses. `ai_usage`: `day`, `route`
+('text'|'image'|'foods'), `calls` — rough daily counter of real API calls.
 
 ## Next steps
 

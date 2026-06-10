@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import type { CatalogFood, LogEntry, NewLogEntry } from "./types";
+import type { NutritionResult } from "./gemini";
 
 // Hosted Postgres (Supabase). The connection string lives in DATABASE_URL.
 // Use Supabase's "Transaction pooler" string (port 6543) so the same URL works
@@ -180,4 +181,36 @@ export async function addCatalogFood(f: {
     SELECT id, name, serving, calories, protein, carbs, fat, source
     FROM foods WHERE lower(name) = lower(${f.name}) LIMIT 1`;
   return toCatalog(existing);
+}
+
+// ---- AI response cache + usage counter (cost guardrails) ----
+
+/** Return a cached Gemini result for this input, or null on a miss. */
+export async function getAiCache(
+  kind: "text" | "image",
+  key: string,
+): Promise<NutritionResult | null> {
+  const [row] = await sql<{ result: NutritionResult }[]>`
+    SELECT result FROM ai_cache WHERE kind = ${kind} AND cache_key = ${key} LIMIT 1`;
+  return row ? row.result : null;
+}
+
+/** Store a Gemini result so the same input never hits the API again. */
+export async function setAiCache(
+  kind: "text" | "image",
+  key: string,
+  result: NutritionResult,
+): Promise<void> {
+  await sql`
+    INSERT INTO ai_cache (kind, cache_key, result)
+    VALUES (${kind}, ${key}, ${JSON.stringify(result)}::jsonb)
+    ON CONFLICT (kind, cache_key) DO NOTHING`;
+}
+
+/** Increment the rough daily counter of real (uncached) Gemini calls. */
+export async function recordAiUsage(route: "text" | "image" | "foods"): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10);
+  await sql`
+    INSERT INTO ai_usage (day, route, calls) VALUES (${day}, ${route}, 1)
+    ON CONFLICT (day, route) DO UPDATE SET calls = ai_usage.calls + 1`;
 }

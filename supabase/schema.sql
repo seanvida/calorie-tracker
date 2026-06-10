@@ -37,3 +37,22 @@ create table if not exists foods (
 -- Case-insensitive uniqueness: dedupes the catalogue and lets the Gemini
 -- fallback insert without ever creating a duplicate / re-querying the same food.
 create unique index if not exists idx_foods_name_lower on foods (lower(name));
+
+-- Persistent cache of Gemini responses, keyed by input, so identical text or
+-- (by content hash) image requests never hit the API twice.
+create table if not exists ai_cache (
+  id         bigint generated always as identity primary key,
+  kind       text        not null,          -- 'text' | 'image'
+  cache_key  text        not null,          -- normalized description, or image sha256
+  result     jsonb       not null,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists idx_ai_cache_kind_key on ai_cache (kind, cache_key);
+
+-- Rough daily counter of real (uncached) Gemini calls, so usage/cost is visible.
+create table if not exists ai_usage (
+  day        text    not null,              -- YYYY-MM-DD (UTC)
+  route      text    not null,              -- 'text' | 'image' | 'foods'
+  calls      integer not null default 0,
+  primary key (day, route)
+);
