@@ -1,0 +1,52 @@
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Local tooling (Claude Code / agents / skill bundles) — not part of the app
+.claude/
+.agents/
+skills-lock.json
+*.skill
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Build output
+dist/
+build/
+*.egg-info/
+
+# Next.js
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Playwright (local browser-test artifacts)
+.playwright-mcp/
+
+# Local database (SQLite)
+data/
+*.db
+*.db-journal
+*.sqlite
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
