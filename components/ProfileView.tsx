@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Profile } from "@/lib/types";
 import { macroTargets, resolveMacroTargets, suggestGoal } from "@/lib/nutrition";
 import InviteButton from "./InviteButton";
+import SignOutButton from "./SignOutButton";
 
 interface ProfileViewProps {
   profile: Profile;
@@ -118,8 +119,12 @@ export default function ProfileView({ profile, onSaved }: ProfileViewProps) {
       </button>
 
       <Section title="Share">
-        <p className="text-xs text-ink-3">Send a friend or family member the app so they can track too.</p>
+        <p className="text-xs text-ink-3">Send a friend or family member the app — they sign in and get their own private log.</p>
         <InviteButton />
+      </Section>
+
+      <Section title="Account">
+        <SignOutButton />
       </Section>
     </div>
   );

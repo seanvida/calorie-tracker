@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { addCatalogFood, recordAiUsage, searchFoods } from "@/lib/db";
 import { analyzeNutrition, GeminiError } from "@/lib/gemini";
 import { clientKey, dedupe, rateLimit, tooManyRequests } from "@/lib/ai-guard";
+import { getUserId } from "@/lib/auth";
 
 // Hits Supabase + Gemini, so it needs the Node.js runtime (not Edge).
 export const runtime = "nodejs";
@@ -17,6 +18,8 @@ export const runtime = "nodejs";
  *     index stops the same food from being stored — or re-queried — twice.
  */
 export async function GET(request: Request) {
+  if (!(await getUserId())) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const q = (searchParams.get("q") ?? "").trim();
   if (!q) return NextResponse.json({ foods: [], source: "local" });

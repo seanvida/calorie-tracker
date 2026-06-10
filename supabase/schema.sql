@@ -57,15 +57,28 @@ create table if not exists ai_usage (
   primary key (day, route)
 );
 
--- Single-user profile (id is always 1). Drives the daily goal + macro targets.
-create table if not exists profile (
-  id             integer primary key default 1,
+-- Per-user profile (one row per authenticated user). Drives goal + macro targets.
+-- (The old single-row `profile` table is deprecated and left untouched.)
+create table if not exists profiles (
+  user_id        uuid primary key,                 -- = auth.uid()
   name           text,
   calorie_goal   integer not null default 2000,
   protein_target integer, carbs_target integer, fat_target integer,
   height_cm      real, weight_kg real, age integer, sex text, activity real,
   onboarded      boolean not null default false,   -- first-run welcome shown/skipped?
-  updated_at     timestamptz not null default now(),
-  constraint profile_singleton check (id = 1)
+  updated_at     timestamptz not null default now()
 );
-insert into profile (id) values (1) on conflict do nothing;
+
+-- Per-user isolation. The app's pooled (service-role) connection bypasses RLS,
+-- so queries are also scoped by user_id in code; RLS is the backstop.
+alter table log_entries add column if not exists user_id uuid;
+create index if not exists idx_log_entries_user_day on log_entries (user_id, day);
+
+alter table log_entries enable row level security;
+alter table profiles    enable row level security;
+drop policy if exists own_log on log_entries;
+create policy own_log on log_entries
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists own_profile on profiles;
+create policy own_profile on profiles
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());

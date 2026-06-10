@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { analyzeNutrition, GeminiError } from "@/lib/gemini";
 import { getAiCache, recordAiUsage, setAiCache } from "@/lib/db";
 import { clientKey, dedupe, rateLimit, tooManyRequests } from "@/lib/ai-guard";
+import { getUserId } from "@/lib/auth";
 
 // Gemini call runs server-side on the Node.js runtime.
 export const runtime = "nodejs";
@@ -15,6 +16,8 @@ export const runtime = "nodejs";
  * in Supabase so the same description never hits the API twice.
  */
 export async function POST(request: Request) {
+  if (!(await getUserId())) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
   let body: { description?: unknown };
   try {
     body = await request.json();

@@ -17,7 +17,8 @@ same data on every device, surviving deploys. Four tabs: **Day** (with
 prev/next + date-picker navigation), **History**, **Trends** (calorie & macro
 charts), and **Profile** (goal + macro targets that drive the daily visuals). AI
 calls are guarded by caching, de-dup, image compression, and rate limiting.
-**Mobile-first, installable PWA, deployed on Vercel.** No login, no accounts (yet).
+**Mobile-first, installable PWA, deployed on Vercel.** **Per-user accounts** via
+Google sign-in (Supabase Auth) — each person's log & profile are private (RLS).
 
 ## Run it
 
@@ -28,11 +29,13 @@ npm run dev      # Next.js at http://localhost:3000
 
 ## Environment & secrets
 
-`.env` (gitignored; `.env.example` has placeholders). Required: `GEMINI_API_KEY`
-and `DATABASE_URL` (Supabase **Transaction pooler**, port 6543 — works locally +
-on Vercel; no keys hardcoded). `.gitignore` covers `.env*` (except the example),
-`node_modules/`, `.next/`. On a fresh DB, run `supabase/schema.sql` once in the
-Supabase SQL Editor; set both env vars in Vercel's project settings.
+`.env` (gitignored; `.env.example` has placeholders). Required: `GEMINI_API_KEY`,
+`DATABASE_URL` (Supabase **Transaction pooler**, port 6543), and
+`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` (for Google sign-in;
+public/anon — isolation is enforced by server session checks + RLS). No keys
+hardcoded. `.gitignore` covers `.env*` (except the example), `node_modules/`,
+`.next/`. On a fresh DB run `supabase/schema.sql` once; set all four env vars in
+Vercel. Auth setup (Google OAuth client + Supabase provider) is in `docs/`.
 
 ## Tech stack
 
@@ -48,27 +51,28 @@ Supabase SQL Editor; set both env vars in Vercel's project settings.
 
 ```
 app/
-  layout.tsx              Root layout, fonts, metadata
-  page.tsx                Single-page client component (all state + flows)
+  layout.tsx              Root layout, fonts, metadata, PWA register
+  page.tsx                Server auth-gate → redirects to /login or renders Home
+  login/page.tsx          Google sign-in screen
+  auth/callback/route.ts  OAuth code → session exchange
   globals.css             Tailwind layers + paper background + base type
-  api/log/route.ts        GET (by date) + POST (add, with meal)
-  api/log/[id]/route.ts   PATCH (change qty) + DELETE
-  api/foods/route.ts      GET ?q= — catalogue search (Supabase first, Gemini fallback)
-  api/nutrition/{text,image}/route.ts   POST description/photo -> AI nutrition
-  api/profile/route.ts    GET + PUT the single-user profile
-  api/summary/route.ts    GET ?from&to — per-day totals (history + trends)
+  api/log, api/log/[id], api/foods, api/nutrition/{text,image},
+  api/profile, api/summary   Route handlers (all require a signed-in user)
+middleware.ts             Refreshes the Supabase session on each request
 components/
+  Home.tsx                The single-page app (all client state + flows)
   AppHeader / DailySummary / MacroBars / MealSection / FoodEntryCard   Day view
   MealPicker / SearchBar / FoodCard / FoodList   Quick-add catalog
   TextPanel / PhotoPanel    AI add flows
   PendingPanel / PendingItemCard / ServingStepper   Review-before-commit editor
   BottomNav / DateNav / HistoryView / TrendsView / ProfileView   Tabs + views
-  Onboarding.tsx / InviteButton.tsx   First-run welcome + one-tap share invite
+  Onboarding / InviteButton / SignOutButton   First-run, invite, sign-out
   PwaRegister.tsx           Service-worker registration
   Spinner.tsx / ErrorNote.tsx   Loading + error UI
 lib/
+  supabase/{server,client}.ts   @supabase/ssr clients   ·   auth.ts  getUserId()
   types.ts    Food, LogEntry, CatalogFood, PendingItem, Profile, DaySummary
-  db.ts       Supabase queries: log, catalogue, AI cache/usage, profile, summaries
+  db.ts       Supabase queries (all user-scoped): log, catalogue, cache, profile
   foods.ts    Static curated Indian core (also the empty-search browse)
   gemini.ts   Gemini REST wrapper + nutrition schema/types
   nutrition.ts  Goal/macro targets, traffic-light, validateNutrition, suggestGoal
@@ -94,18 +98,24 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
 
 ## Architecture notes
 
-- **Data flow:** `app/page.tsx` (client) fetches `GET /api/log?date=<today>` on
+- **Auth & per-user isolation:** Google sign-in via Supabase Auth (`@supabase/ssr`).
+  `middleware.ts` refreshes the session; `app/page.tsx` (server) redirects to
+  `/login` when there's no user. `/auth/callback` exchanges the OAuth code. Every
+  route handler resolves the user with `getUserId()` (`lib/auth.ts`) and returns
+  401 if absent; **every DB query is scoped by `user_id`** (the authoritative
+  isolation, since the pooled service connection bypasses RLS — RLS is the
+  backstop). `foods`/`ai_cache`/`ai_usage` stay shared. If auth env vars are
+  unset, `authConfigured()` lets the app fall back to un-gated (pre-cutover only).
+- **Data flow:** `Home` (client) fetches `GET /api/log?date=<today>` on
   mount to restore the day. All three add modes funnel through one
   `logFood(payload)` → `POST /api/log`, so everything persists identically.
   Totals and per-meal groups are derived with `useMemo`.
 - **Meal categories:** every entry has a `meal`. The add tool has a `MealPicker`
   that defaults to the meal for the current hour (`mealForHour`); each
   `MealSection`'s "+ Add" re-targets the picker and scrolls to it.
-- **Editable serving size:** each `FoodEntryCard` has a − / qty / + stepper.
-  Changing it `PATCH`es `/api/log/[id]` with the new `qty` (validated 1–99),
-  updating the row's quantity. The UI updates optimistically and rolls back on
-  failure; the card's steppers disable while the request is in flight. Calories
-  and macros are stored per-serving and multiplied by `qty` for display/totals.
+- **Editable serving size:** `FoodEntryCard`'s − / qty / + stepper `PATCH`es
+  `/api/log/[id]` (qty 1–99, optimistic + rollback); macros are stored per-serving
+  and multiplied by `qty` for display/totals.
 - **Views & navigation:** `page.tsx` switches between four tabs via `BottomNav`
   (`view` state). **Day** uses `DateNav` (prev/next + native date picker, capped
   at today) and a `selectedDate` — the log re-fetches per day, and adds target
@@ -113,8 +123,8 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
   **Trends** renders two CSS-bar charts (calories vs goal with a goal line; macros
   stacked by kcal contribution) over a continuous date range. **Profile** edits
   name/goal/macro targets (+ optional body stats → `suggestGoal`, Mifflin-St Jeor).
-- **Daily goal & macros come from the profile** (Supabase, single row id=1, via
-  `/api/profile`). The hero's goal edit also `PUT`s the profile. Macro targets are
+- **Daily goal & macros come from the profile** (Supabase `profiles`, one row per
+  user, via `/api/profile`). The hero's goal edit also `PUT`s the profile. Macro targets are
   `resolveMacroTargets` (explicit profile targets, else the 30/45/25 goal split).
   The calorie bar color comes from `calorieState` (green <90%, amber 90–100%, red >100%).
 - **First-run & empty states:** a skippable 3-step `Onboarding` overlay shows
@@ -127,34 +137,26 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
 - **PWA:** `public/manifest.webmanifest` + generated icons + `public/sw.js`
   (registered by `PwaRegister`; network-first shell, never caches `/api`; bump the
   `CACHE` version on shell changes). `app/layout.tsx` sets manifest + theme + icons.
-- **Catalogue search (two layers):** quick-add with an empty box browses the
-  curated Indian core (`lib/foods.ts`, no fetch). Typing hits
-  `GET /api/foods?q=` → `searchFoods` queries Supabase first (tokenized: every
-  word must appear, so "chicken breast" matches USDA's comma-ordered names). On a
-  **miss**, it falls back to Gemini for that single food, **saves** the result to
-  the `foods` table (`source='gemini'`, `reviewed=false`) via `addCatalogFood`,
-  and returns it — so the catalogue grows and the same food isn't re-queried. The
-  unique `lower(name)` index prevents duplicates. `reviewed=false` is the review
-  queue for AI-sourced entries (seed rows are `reviewed=true`).
+- **Catalogue search (two layers):** empty box browses the curated Indian core
+  (`lib/foods.ts`, no fetch); typing hits `GET /api/foods?q=` → `searchFoods`
+  (tokenized Supabase search — "chicken breast" matches USDA's comma-ordered
+  names). On a **miss** it falls back to Gemini and **saves** the food
+  (`source='gemini'`, `reviewed=false`; unique `lower(name)`) so the catalogue
+  grows and isn't re-queried. `reviewed=false` = the AI review queue.
 - **AI lookup:** `lib/gemini.ts` uses Gemini structured output
   (`responseSchema`) so responses are valid JSON. The text/image routes return a
   `NutritionResult`; errors are mapped to HTTP codes.
-- **Review before commit:** all three add paths funnel into one `pending`
-  list rendered by `PendingPanel`. Quick-add/search **append** an item;
-  text/photo **replace** with the detected items. Each `PendingItemCard` is fully
-  editable — name, serving label, a `ServingStepper` (0.5 steps), and macro
-  inputs that hold the *totals* and recompute live as servings change. **Nothing
-  is written** until "Add meal", which loops `logFood` (baking the multiplier into
-  the serving label). AI-sourced items run `validateNutrition` and show ⚠ flags
-  for implausible values (absurd calories, macro/calorie mismatch) while staying
-  editable. Photo results with multiple foods can be edited/removed individually.
-- **Cost & abuse guardrails** (every Gemini path): a persistent Supabase cache
-  (`ai_cache`, keyed by normalized text or image sha256) means the same input
-  never bills twice; an in-memory short-window de-dup (`lib/ai-guard.ts`) shares
-  concurrent identical calls; a per-IP fixed-window rate limit (20/min) guards
-  the API paths (local search hits stay unthrottled); photos are downscaled to
-  ~1024px JPEG client-side (`lib/image.ts`) before upload; and `recordAiUsage`
-  increments a daily `ai_usage` counter so real call volume is visible.
+- **Review before commit:** all add paths stage into one `PendingPanel` list
+  (quick-add/search append; text/photo replace). Each `PendingItemCard` is fully
+  editable — name, serving, a 0.5-step `ServingStepper`, macro totals that
+  recompute live. **Nothing saves until "Add meal"** (loops `logFood`, baking the
+  multiplier into the label). AI items run `validateNutrition` → ⚠ flags for
+  implausible values while staying editable; photo items individually removable.
+- **Cost & abuse guardrails** (every Gemini path): persistent Supabase cache
+  (`ai_cache`, by normalized text / image sha256) so the same input never bills
+  twice; in-memory short-window de-dup (`lib/ai-guard.ts`); per-IP rate limit
+  (20/min) on the API paths; client-side ~1024px JPEG downscale (`lib/image.ts`)
+  before upload; and a daily `ai_usage` counter (`recordAiUsage`) for visibility.
 - **Database:** `lib/db.ts` connects to Supabase Postgres via `DATABASE_URL` with
   the `postgres` driver (tagged-template queries → parameterized + safe). All query
   functions are **async** (routes `await` them); the client is cached on
@@ -165,10 +167,10 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
 
 ## Data model
 
-`log_entries` (Postgres): `id` (bigint identity), `food_name`, `serving`,
-`calories`, `protein`, `carbs`, `fat` (real), `qty` (int, default 1), `meal`
-(Breakfast/Lunch/Dinner/Snack, default Snack), `day` (text YYYY-MM-DD, indexed),
-`created_at` (timestamptz). Defined in `supabase/schema.sql`.
+`log_entries` (Postgres): `id` (bigint identity), `user_id` (uuid, indexed with
+`day`), `food_name`, `serving`, `calories`, `protein`, `carbs`, `fat` (real),
+`qty` (int, default 1), `meal` (default Snack), `day` (text YYYY-MM-DD),
+`created_at`. RLS on. Rows with NULL `user_id` are pre-auth orphans (invisible).
 
 `foods` (catalogue): `id`, `name` (unique on `lower(name)`), `serving`,
 `calories`, `protein`, `carbs`, `fat`, `source` ('seed' | 'gemini'), `reviewed`
@@ -176,24 +178,21 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
 fallback. `lib/foods.ts` stays as the curated Indian core for the empty-search
 browse (and is merged into the seed).
 
-`ai_cache`: `kind` ('text'|'image'), `cache_key` (unique with kind), `result`
-(jsonb) — caches Gemini responses. `ai_usage`: `day`, `route`, `calls` — daily
-call counter. `profile`: single row (`id`=1) — `name`, `calorie_goal`,
-`{protein,carbs,fat}_target`, body stats, and `onboarded` (first-run flag).
+`profiles`: one row per user — `user_id` (PK = auth.uid()), `name`,
+`calorie_goal`, `{protein,carbs,fat}_target`, body stats, `onboarded`. RLS on.
+(The old single-row `profile` table is deprecated/unused.) `foods` (shared
+catalogue, unique `lower(name)`, `source`, `reviewed`); `ai_cache` (Gemini
+responses by text/image key); `ai_usage` (daily call counter) — all shared.
 
 ## Deploy
 
-Live on **Vercel** (auto-deploys on push to `main`). Env vars set in the Vercel
-project: `GEMINI_API_KEY`, `DATABASE_URL`. PWA-installable from the live URL.
-
-> ⚠️ **Still single-tenant — no auth/RLS yet.** One global `profile` +
-> `log_entries`, shared by anyone who opens the URL: onboarding shows once, and
-> **Invite shares the same data, not a private space.** Per-user isolation needs
-> Supabase Auth + `user_id` + RLS (the next step before promoting invites).
+Live on **Vercel** (auto-deploys on push to `main`). Env vars in the Vercel
+project: `GEMINI_API_KEY`, `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`. PWA-installable from the live URL. Google OAuth
+must be enabled in the Supabase dashboard (provider + redirect URLs) — see `docs/`.
 
 ## Next steps
 
-- **Auth + RLS (biggest)** — Supabase Auth + `user_id` + row-level security to
-  make profile/log per-user. Prerequisite for the invite to mean private spaces.
 - **Review AI-sourced foods** — admin view over `foods WHERE NOT reviewed`.
 - **Barcode scanning**; a **native app** wrapper; **prefs** (units, theme); tests.
+- Optionally drop the deprecated `profile` table once everyone's migrated.

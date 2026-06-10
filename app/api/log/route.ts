@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { addEntry, getEntriesForDay } from "@/lib/db";
+import { getUserId } from "@/lib/auth";
 import { MEALS, type MealCategory, type NewLogEntry } from "@/lib/types";
 
 // The Postgres client uses TCP sockets, so it needs the Node.js runtime (not Edge).
@@ -7,16 +8,22 @@ export const runtime = "nodejs";
 
 /** GET /api/log?date=YYYY-MM-DD — entries logged for that day. */
 export async function GET(request: Request) {
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const day = searchParams.get("date") ?? todayKey();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 });
   }
-  return NextResponse.json({ entries: await getEntriesForDay(day) });
+  return NextResponse.json({ entries: await getEntriesForDay(userId, day) });
 }
 
 /** POST /api/log — add a food to the log. */
 export async function POST(request: Request) {
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
   let body: Partial<NewLogEntry>;
   try {
     body = await request.json();
@@ -43,7 +50,7 @@ export async function POST(request: Request) {
     ? (body.meal as MealCategory)
     : "Snack";
 
-  const entry = await addEntry({
+  const entry = await addEntry(userId, {
     foodName,
     serving,
     calories,

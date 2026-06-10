@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server";
 import { getProfile, saveProfile } from "@/lib/db";
+import { getUserId } from "@/lib/auth";
 import type { Profile } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-/** GET /api/profile — the single-user profile. */
+/** GET /api/profile — the signed-in user's profile. */
 export async function GET() {
-  return NextResponse.json({ profile: await getProfile() });
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  return NextResponse.json({ profile: await getProfile(userId) });
 }
 
 const numOrNull = (v: unknown): number | null =>
   typeof v === "number" && Number.isFinite(v) ? v : null;
 
-/** PUT /api/profile — upsert the profile. */
+/** PUT /api/profile — upsert the signed-in user's profile. */
 export async function PUT(request: Request) {
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
   let body: Partial<Profile>;
   try {
     body = await request.json();
@@ -29,7 +35,7 @@ export async function PUT(request: Request) {
     );
   }
 
-  const profile = await saveProfile({
+  const profile = await saveProfile(userId, {
     name: typeof body.name === "string" ? body.name.trim().slice(0, 60) || null : null,
     calorieGoal: goal ?? 2000,
     proteinTarget: numOrNull(body.proteinTarget),

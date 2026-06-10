@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { analyzeNutrition, GeminiError } from "@/lib/gemini";
 import { getAiCache, recordAiUsage, setAiCache } from "@/lib/db";
 import { clientKey, dedupe, rateLimit, tooManyRequests } from "@/lib/ai-guard";
+import { getUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,8 @@ const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/h
  *  - application/json: { "imageBase64": "...", "mimeType": "image/jpeg" }
  */
 export async function POST(request: Request) {
+  if (!(await getUserId())) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
   let data: string;
   let mimeType: string;
 
