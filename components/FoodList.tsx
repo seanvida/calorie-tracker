@@ -1,14 +1,14 @@
-import type { Food } from "@/lib/types";
+import type { DisplayFood, Food } from "@/lib/types";
 import FoodCard from "./FoodCard";
 
 interface FoodListProps {
   foods: Food[];
-  onAdd: (food: Food) => void;
-  busyId?: string | null;
+  onAdd: (food: DisplayFood) => void;
+  busyName?: string | null;
 }
 
 /** Groups the (already filtered) foods by category and renders cards. */
-export default function FoodList({ foods, onAdd, busyId }: FoodListProps) {
+export default function FoodList({ foods, onAdd, busyName }: FoodListProps) {
   if (foods.length === 0) {
     return (
       <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-6 text-center text-sm text-ink-3">
@@ -30,7 +30,7 @@ export default function FoodList({ foods, onAdd, busyId }: FoodListProps) {
             {foods
               .filter((f) => f.category === category)
               .map((food) => (
-                <FoodCard key={food.id} food={food} onAdd={onAdd} busy={busyId === food.id} />
+                <FoodCard key={food.id} food={food} onAdd={onAdd} busy={busyName === food.name} />
               ))}
           </div>
         </section>

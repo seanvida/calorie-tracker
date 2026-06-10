@@ -5,9 +5,11 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 ## What this is
 
 **Calorie Tracker** is a polished single-page calorie & macro tracker for
-everyday Indian food. You log meals three ways — quick-add from a 60+ food
-catalog, a plain-English description, or a meal photo — and watch a daily calorie
-goal, a traffic-light progress bar, and macro bars update live. Entries are
+everyday Indian food. You log meals three ways — quick-add from a **searchable
+catalogue of thousands of foods** (Indian + everyday + packaged, with an AI
+fallback that grows the catalogue on misses), a plain-English description, or a
+meal photo — and watch a daily calorie goal, a traffic-light progress bar, and
+macro bars update live. Entries are
 grouped by meal (Breakfast / Lunch / Dinner / Snack), each with an **editable
 serving count**, and persist in a hosted **Supabase (Postgres)** database — the
 same data on every device, surviving deploys. No login, no accounts (yet).
@@ -42,7 +44,9 @@ Other scripts: `npm run build`, `npm start`. No test/lint suite yet.
 - **Tailwind CSS 3** with a custom design system (see below)
 - **Fonts:** Fraunces (display serif) + Hanken Grotesk (body), via `next/font`
 - **Supabase (Postgres)** via the `postgres` driver — hosted DB, no native build
-- **Gemini API** (`gemini-2.5-flash-lite`) for AI nutrition lookup, via REST `fetch`
+- **Gemini API** (`gemini-2.5-flash-lite`) for AI nutrition lookup + search fallback
+- **Food catalogue** seeded from **USDA FoodData Central (SR Legacy)** + a curated
+  Indian core (~7.8k rows) — see `scripts/`
 
 ## Folder structure
 
@@ -53,6 +57,7 @@ app/
   globals.css             Tailwind layers + paper background + base type
   api/log/route.ts        GET (by date) + POST (add, with meal)
   api/log/[id]/route.ts   PATCH (change qty) + DELETE
+  api/foods/route.ts      GET ?q= — catalogue search (Supabase first, Gemini fallback)
   api/nutrition/text/route.ts    POST description -> AI nutrition
   api/nutrition/image/route.ts   POST photo -> AI nutrition
 components/
@@ -67,10 +72,14 @@ components/
   Spinner.tsx / ErrorNote.tsx              Loading + error UI
 lib/
   types.ts                Food, LogEntry, MealCategory, etc.
-  db.ts                   Supabase/Postgres client + queries (postgres driver)
-  foods.ts                Static catalog of 60+ Indian foods
+  db.ts                   Supabase client + queries: log + catalogue search/cache
+  foods.ts                Static curated Indian core (also the empty-search browse)
   gemini.ts               Gemini REST wrapper + nutrition schema/types
   nutrition.ts            Goal/macro targets, traffic-light state, meal-by-hour
+scripts/
+  gen-foods-seed.mjs      Builds foods_seed.json from USDA SR Legacy + Indian core
+  seed-foods.mjs          Idempotently seeds the foods table (node scripts/seed-foods.mjs)
+  foods_seed.json         Generated seed data (~7.8k foods)
 supabase/schema.sql       Postgres schema — run once in the Supabase SQL Editor
 docs/                     Dated decision logs
 PLAN.md                   What we built / improved / roadmap
@@ -111,6 +120,15 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
   2000), editable in the hero. Macro gram targets are derived from the goal
   (`macroTargets`, 30/45/25 split). The calorie bar color comes from
   `calorieState` (green <90%, amber 90–100%, red >100%).
+- **Catalogue search (two layers):** quick-add with an empty box browses the
+  curated Indian core (`lib/foods.ts`, no fetch). Typing hits
+  `GET /api/foods?q=` → `searchFoods` queries Supabase first (tokenized: every
+  word must appear, so "chicken breast" matches USDA's comma-ordered names). On a
+  **miss**, it falls back to Gemini for that single food, **saves** the result to
+  the `foods` table (`source='gemini'`, `reviewed=false`) via `addCatalogFood`,
+  and returns it — so the catalogue grows and the same food isn't re-queried. The
+  unique `lower(name)` index prevents duplicates. `reviewed=false` is the review
+  queue for AI-sourced entries (seed rows are `reviewed=true`).
 - **AI lookup:** `lib/gemini.ts` uses Gemini structured output
   (`responseSchema`) so responses are valid JSON. Both routes return the same
   `NutritionResult`; `AiResultPanel` shows items with checkboxes to confirm
@@ -138,16 +156,19 @@ and `ssl: "require"`.
 (Breakfast/Lunch/Dinner/Snack, default Snack), `day` (text YYYY-MM-DD, indexed),
 `created_at` (timestamptz). Defined in `supabase/schema.sql`.
 
-The food **catalog** (`lib/foods.ts`) is static TS data, not in the DB; only
-logged entries are persisted (nothing to seed in the DB).
+`foods` (catalogue): `id`, `name` (unique on `lower(name)`), `serving`,
+`calories`, `protein`, `carbs`, `fat`, `source` ('seed' | 'gemini'), `reviewed`
+(bool), `created_at`. Seeded by `scripts/seed-foods.mjs`; grown by the search
+fallback. `lib/foods.ts` stays as the curated Indian core for the empty-search
+browse (and is merged into the seed).
 
 ## Next steps
 
 Not built yet — natural follow-ups:
 
-- **Deploy to Vercel** — DB is now hosted (Supabase), so set `GEMINI_API_KEY`
-  and `DATABASE_URL` in Vercel's env settings and ship.
+- **Review AI-sourced foods** — an admin view over `foods WHERE NOT reviewed` to
+  vet/correct Gemini entries (flip `reviewed` once checked).
 - **Food history & charts** — weekly/monthly calorie & macro trends.
 - **User preferences** — custom macro split, units, theme, persisted server-side.
 - **Barcode scanning** — look up packaged foods by barcode.
-- Editable quantity/serving on entries; date navigation; custom foods; a test suite.
+- Date navigation; custom foods; a test suite.

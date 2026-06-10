@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FOODS } from "@/lib/foods";
-import { MEALS, type DailyTotals, type Food, type LogEntry, type MealCategory } from "@/lib/types";
+import {
+  MEALS,
+  type CatalogFood,
+  type DailyTotals,
+  type DisplayFood,
+  type LogEntry,
+  type MealCategory,
+} from "@/lib/types";
 import type { NutritionItem, NutritionResult } from "@/lib/gemini";
 import { DEFAULT_GOAL, mealForHour } from "@/lib/nutrition";
 import AppHeader from "@/components/AppHeader";
@@ -11,6 +18,7 @@ import MealSection from "@/components/MealSection";
 import MealPicker from "@/components/MealPicker";
 import SearchBar from "@/components/SearchBar";
 import FoodList from "@/components/FoodList";
+import FoodCard from "@/components/FoodCard";
 import TextPanel from "@/components/TextPanel";
 import PhotoPanel from "@/components/PhotoPanel";
 import AiResultPanel from "@/components/AiResultPanel";
@@ -49,7 +57,13 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("quick");
   const [mealTarget, setMealTarget] = useState<MealCategory>("Snack");
   const [query, setQuery] = useState("");
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyName, setBusyName] = useState<string | null>(null);
+
+  // Catalogue search (server-side): hits Supabase first, Gemini on a miss.
+  const [results, setResults] = useState<CatalogFood[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [resultSource, setResultSource] = useState<"local" | "gemini" | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // AI lookup state (shared by describe + photo).
   const [description, setDescription] = useState("");
@@ -110,13 +124,38 @@ export default function Home() {
     return groups;
   }, [entries]);
 
-  const filteredFoods = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return FOODS;
-    return FOODS.filter(
-      (f) => f.name.toLowerCase().includes(q) || f.category.toLowerCase().includes(q),
-    );
+  // Debounced catalogue search. Empty query → browse the curated list (no fetch);
+  // otherwise hit /api/foods (Supabase first, Gemini fallback that caches misses).
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
+      setResultSource(null);
+      setSearchError(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    setSearchError(null);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/foods?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Search failed.");
+        setResults(data.foods ?? []);
+        setResultSource(data.source ?? "local");
+      } catch (e) {
+        setResults([]);
+        setResultSource(null);
+        setSearchError(friendlyError(e));
+      } finally {
+        setSearching(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
   }, [query]);
+
+  const resultCount = query.trim() ? results.length : FOODS.length;
 
   /** Persist one food to the DB and append the created entry to state. */
   async function logFood(payload: LogPayload): Promise<boolean> {
@@ -134,8 +173,8 @@ export default function Home() {
     return false;
   }
 
-  async function addFood(food: Food) {
-    setBusyId(food.id);
+  async function addFood(food: DisplayFood) {
+    setBusyName(food.name);
     try {
       await logFood({
         foodName: food.name,
@@ -146,7 +185,7 @@ export default function Home() {
         fat: food.fat,
       });
     } finally {
-      setBusyId(null);
+      setBusyName(null);
     }
   }
 
@@ -351,9 +390,43 @@ export default function Home() {
 
           {mode === "quick" && (
             <div className="space-y-3">
-              <SearchBar value={query} onChange={setQuery} resultCount={filteredFoods.length} />
+              <SearchBar value={query} onChange={setQuery} resultCount={resultCount} />
               <div className="max-h-[56vh] overflow-y-auto rounded-2xl border border-line bg-surface/40 p-3 [scrollbar-color:#DED3C0_transparent] [scrollbar-width:thin]">
-                <FoodList foods={filteredFoods} onAdd={addFood} busyId={busyId} />
+                {!query.trim() ? (
+                  // Empty query: browse the curated Indian core, grouped by category.
+                  <FoodList foods={FOODS} onAdd={addFood} busyName={busyName} />
+                ) : searching ? (
+                  <div className="flex items-center justify-center gap-2 py-10 text-sm text-ink-3">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-line-2 border-t-matcha" />
+                    Searching the catalogue…
+                  </div>
+                ) : searchError ? (
+                  <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-6 text-center text-sm text-ink-3">
+                    {searchError}
+                  </p>
+                ) : results.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-6 text-center text-sm text-ink-3">
+                    No food found for “{query.trim()}”. Try the Describe tab for a full meal.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {resultSource === "gemini" && (
+                      <p className="rounded-xl bg-matcha-tint px-3 py-2 text-xs text-matcha-deep">
+                        ✦ Estimated by AI and added to the catalogue.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {results.map((food) => (
+                        <FoodCard
+                          key={food.id}
+                          food={food}
+                          onAdd={addFood}
+                          busy={busyName === food.name}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -402,7 +475,7 @@ export default function Home() {
       </main>
 
       <footer className="mx-auto max-w-2xl px-5 pb-10 text-center text-xs text-ink-3">
-        Calorie Tracker · {FOODS.length} Indian foods · AI by Gemini · saved on this device
+        Calorie Tracker · thousands of foods · AI by Gemini · saved to your account
       </footer>
     </div>
   );

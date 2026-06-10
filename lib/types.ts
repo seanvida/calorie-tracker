@@ -28,6 +28,23 @@ export type FoodCategory =
   | "Fruits"
   | "Eggs";
 
+/** The minimal shape needed to render + log a food (catalog item or search hit). */
+export interface DisplayFood extends Macros {
+  name: string;
+  serving: string;
+  calories: number;
+}
+
+/** A food from the searchable Supabase catalogue (`foods` table). */
+export interface CatalogFood extends Macros {
+  id: number;
+  name: string;
+  serving: string;
+  calories: number;
+  /** 'seed' = curated/USDA base; 'gemini' = added via AI fallback on a miss. */
+  source: "seed" | "gemini";
+}
+
 /** Which meal an entry belongs to. */
 export type MealCategory = "Breakfast" | "Lunch" | "Dinner" | "Snack";
 

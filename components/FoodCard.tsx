@@ -1,8 +1,8 @@
-import type { Food } from "@/lib/types";
+import type { DisplayFood } from "@/lib/types";
 
 interface FoodCardProps {
-  food: Food;
-  onAdd: (food: Food) => void;
+  food: DisplayFood;
+  onAdd: (food: DisplayFood) => void;
   busy?: boolean;
 }
 

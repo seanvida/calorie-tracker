@@ -22,7 +22,7 @@ export default function SearchBar({ value, onChange, resultCount }: SearchBarPro
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Search 60+ foods — paneer, rice, egg…"
+        placeholder="Search thousands of foods — paneer, oats, dosa…"
         className="w-full rounded-2xl border border-line bg-surface py-3 pl-11 pr-20 text-sm text-ink shadow-card outline-none transition focus:border-matcha placeholder:text-ink-3"
       />
       {value && (
