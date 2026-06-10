@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import type { DailyTotals } from "@/lib/types";
-import { calorieState, macroTargets, type ProgressState } from "@/lib/nutrition";
+import { calorieState, macroTargets, type MacroTargets, type ProgressState } from "@/lib/nutrition";
 import MacroBars from "./MacroBars";
 
 interface DailySummaryProps {
   totals: DailyTotals;
   goal: number;
   onGoalChange: (goal: number) => void;
+  /** Explicit macro gram targets (from profile); defaults to the goal split. */
+  targets?: MacroTargets;
 }
 
 const STATE_STYLES: Record<ProgressState, { bar: string; chip: string; label: (n: number) => string }> = {
@@ -30,7 +32,7 @@ const STATE_STYLES: Record<ProgressState, { bar: string; chip: string; label: (n
 };
 
 /** The hero card: calories vs goal with a traffic-light bar, plus macros. */
-export default function DailySummary({ totals, goal, onGoalChange }: DailySummaryProps) {
+export default function DailySummary({ totals, goal, onGoalChange, targets }: DailySummaryProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(goal));
 
@@ -122,7 +124,7 @@ export default function DailySummary({ totals, goal, onGoalChange }: DailySummar
         protein={totals.protein}
         carbs={totals.carbs}
         fat={totals.fat}
-        targets={macroTargets(goal)}
+        targets={targets ?? macroTargets(goal)}
       />
     </section>
   );

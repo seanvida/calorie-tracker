@@ -56,3 +56,15 @@ create table if not exists ai_usage (
   calls      integer not null default 0,
   primary key (day, route)
 );
+
+-- Single-user profile (id is always 1). Drives the daily goal + macro targets.
+create table if not exists profile (
+  id             integer primary key default 1,
+  name           text,
+  calorie_goal   integer not null default 2000,
+  protein_target integer, carbs_target integer, fat_target integer,
+  height_cm      real, weight_kg real, age integer, sex text, activity real,
+  updated_at     timestamptz not null default now(),
+  constraint profile_singleton check (id = 1)
+);
+insert into profile (id) values (1) on conflict do nothing;

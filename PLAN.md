@@ -1,8 +1,9 @@
 # Calorie Tracker — Project Plan
 
 **Calorie Tracker** is a calm, professional calorie & macro tracker for everyday
-Indian food. Single page, no accounts, local-first. Built with Next.js 15, React
-19, TypeScript, Tailwind, `node:sqlite`, and the Gemini API.
+Indian food. No accounts, mobile-first, installable PWA, deployed on Vercel.
+Built with Next.js 15, React 19, TypeScript, Tailwind, hosted **Supabase
+(Postgres)**, and the Gemini API.
 
 ---
 
@@ -43,12 +44,24 @@ skill — full write-up in `docs/2026-06-09-ralph-polish.md`):
 - **Verified end-to-end** on desktop and mobile via Playwright (meal-aware add,
   persistence, no console errors).
 
-## Future Roadmap
+## Since shipped (now done)
 
-- **Deploy to Vercel** — move persistence off the local SQLite file to a hosted
-  DB (Turso/libSQL or Postgres), since serverless filesystems aren't durable.
-- **Food history & charts** — weekly/monthly calorie & macro trends and streaks.
-- **User preferences** — custom macro split, units, light/dark, server-synced.
-- **Barcode scanning** — look up packaged foods by barcode.
-- **Nice-to-haves** — editable quantity/serving on entries, date navigation,
-  custom foods, and an automated test suite.
+Migrated to hosted **Supabase Postgres**; expanded the catalogue to **~7.8k foods**
+(USDA + Indian core) with a **Gemini search fallback that caches misses**; added
+**AI cost/abuse guardrails** (cache, de-dup, image compression, rate limit, usage
+counter); reworked adding into a **review-before-commit** flow (0.5-step servings,
+live recompute, AI sanity flags); added **day navigation, History, Trends charts,
+and a Supabase-backed Profile** that drives the daily goal; made it **mobile-first
++ an installable PWA**; and **deployed to Vercel**. (See dated logs in `docs/`.)
+
+## Future Roadmap (what's left)
+
+- **Accounts / multi-user** — the app is still single-user (one shared profile +
+  log). Real auth (e.g. Supabase Auth) + per-user data is the big next step.
+- **Native app** — wrap the PWA (Capacitor / native shell) for app-store presence,
+  push notifications, and reminders.
+- **Barcode scanning** — look up packaged foods by barcode in the add flow.
+- **Review queue UI** — admin view to vet/correct AI-sourced catalogue foods
+  (`foods WHERE NOT reviewed`).
+- **Streaks & weekly insights**; **export** (CSV); **light/dark + units** prefs.
+- **Custom foods/recipes** the user defines once and reuses; an automated test suite.

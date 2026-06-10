@@ -12,8 +12,10 @@ import {
   type PendingItem,
 } from "@/lib/types";
 import type { NutritionItem, NutritionResult } from "@/lib/gemini";
-import { DEFAULT_GOAL, mealForHour } from "@/lib/nutrition";
+import { DEFAULT_GOAL, mealForHour, resolveMacroTargets } from "@/lib/nutrition";
+import { todayKey } from "@/lib/date";
 import { compressImage } from "@/lib/image";
+import type { Profile } from "@/lib/types";
 import AppHeader from "@/components/AppHeader";
 import DailySummary from "@/components/DailySummary";
 import MealSection from "@/components/MealSection";
@@ -25,12 +27,24 @@ import TextPanel from "@/components/TextPanel";
 import PhotoPanel from "@/components/PhotoPanel";
 import PendingPanel from "@/components/PendingPanel";
 import ErrorNote from "@/components/ErrorNote";
+import BottomNav, { type View } from "@/components/BottomNav";
+import DateNav from "@/components/DateNav";
+import HistoryView from "@/components/HistoryView";
+import TrendsView from "@/components/TrendsView";
+import ProfileView from "@/components/ProfileView";
 
-function todayKey(): string {
-  return new Date().toLocaleDateString("en-CA");
-}
-
-const GOAL_KEY = "calorie-tracker.goal";
+const DEFAULT_PROFILE: Profile = {
+  name: null,
+  calorieGoal: DEFAULT_GOAL,
+  proteinTarget: null,
+  carbsTarget: null,
+  fatTarget: null,
+  heightCm: null,
+  weightKg: null,
+  age: null,
+  sex: null,
+  activity: null,
+};
 
 type Mode = "quick" | "describe" | "photo";
 const MODES: { id: Mode; label: string }[] = [
@@ -53,7 +67,19 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
-  const [goal, setGoal] = useState(DEFAULT_GOAL);
+
+  // Which tab + which day we're viewing.
+  const [view, setView] = useState<View>("day");
+  const [selectedDate, setSelectedDate] = useState(todayKey());
+
+  // Profile (from Supabase) drives the daily goal + macro targets.
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const goal = profile?.calorieGoal ?? DEFAULT_GOAL;
+  const targets = resolveMacroTargets(goal, {
+    protein: profile?.proteinTarget,
+    carbs: profile?.carbsTarget,
+    fat: profile?.fatTarget,
+  });
 
   // Add-food UI.
   const [mode, setMode] = useState<Mode>("quick");
@@ -80,17 +106,20 @@ export default function Home() {
   const [aiError, setAiError] = useState<string | null>(null);
 
   const addRef = useRef<HTMLDivElement>(null);
-  const day = todayKey();
+  const day = selectedDate;
 
-  // Restore goal + default the add target to the current meal (client-only).
+  // Load the profile + default the add target to the current meal (client-only).
   useEffect(() => {
-    const saved = Number(localStorage.getItem(GOAL_KEY));
-    if (Number.isFinite(saved) && saved > 0) setGoal(saved);
+    fetch("/api/profile")
+      .then((r) => r.json())
+      .then((d) => d.profile && setProfile(d.profile))
+      .catch(() => setProfile(DEFAULT_PROFILE));
     setMealTarget(mealForHour(new Date().getHours()));
   }, []);
 
-  // Load today's log on mount — restores state across refreshes.
+  // Load the selected day's log (re-runs when you navigate days).
   useEffect(() => {
+    setLoading(true);
     fetch(`/api/log?date=${day}`)
       .then((r) => r.json())
       .then((data) => setEntries(data.entries ?? []))
@@ -98,9 +127,18 @@ export default function Home() {
       .finally(() => setLoading(false));
   }, [day]);
 
+  /** Edit the goal from the hero; persists to the profile in Supabase. */
   function updateGoal(next: number) {
-    setGoal(next);
-    localStorage.setItem(GOAL_KEY, String(next));
+    const updated: Profile = { ...(profile ?? DEFAULT_PROFILE), calorieGoal: next };
+    setProfile(updated);
+    fetch("/api/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    })
+      .then((r) => r.json())
+      .then((d) => d.profile && setProfile(d.profile))
+      .catch(() => {});
   }
 
   const totals = useMemo<DailyTotals>(
@@ -342,11 +380,45 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen pb-24">
       <AppHeader />
 
-      <main className="mx-auto max-w-2xl space-y-7 px-4 pb-16 pt-5 sm:px-5">
-        <DailySummary totals={totals} goal={goal} onGoalChange={updateGoal} />
+      <main className="mx-auto max-w-2xl px-4 pb-10 pt-5 sm:px-5">
+        {view === "history" && (
+          <div className="space-y-5">
+            <h1 className="font-display text-xl font-semibold text-ink">History</h1>
+            <HistoryView
+              goal={goal}
+              onOpenDay={(d) => {
+                setSelectedDate(d);
+                setView("day");
+              }}
+            />
+          </div>
+        )}
+
+        {view === "trends" && (
+          <div className="space-y-5">
+            <h1 className="font-display text-xl font-semibold text-ink">Trends</h1>
+            <TrendsView goal={goal} />
+          </div>
+        )}
+
+        {view === "profile" && (
+          <div className="space-y-5">
+            <h1 className="font-display text-xl font-semibold text-ink">Profile</h1>
+            {profile ? (
+              <ProfileView profile={profile} onSaved={setProfile} />
+            ) : (
+              <div className="h-64 animate-pulse rounded-2xl bg-surface/60" />
+            )}
+          </div>
+        )}
+
+      {view === "day" && (
+        <div className="space-y-7">
+        <DateNav date={selectedDate} onChange={setSelectedDate} />
+        <DailySummary totals={totals} goal={goal} onGoalChange={updateGoal} targets={targets} />
 
         {/* Meal-grouped log */}
         <div className="space-y-6">
@@ -467,11 +539,11 @@ export default function Home() {
             adding={adding}
           />
         </section>
+        </div>
+      )}
       </main>
 
-      <footer className="mx-auto max-w-2xl px-5 pb-10 text-center text-xs text-ink-3">
-        Calorie Tracker · thousands of foods · AI by Gemini · saved to your account
-      </footer>
+      <BottomNav view={view} onChange={setView} />
     </div>
   );
 }

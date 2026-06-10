@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import type { CatalogFood, LogEntry, NewLogEntry } from "./types";
+import type { CatalogFood, DaySummary, LogEntry, NewLogEntry, Profile } from "./types";
 import type { NutritionResult } from "./gemini";
 
 // Hosted Postgres (Supabase). The connection string lives in DATABASE_URL.
@@ -213,4 +213,90 @@ export async function recordAiUsage(route: "text" | "image" | "foods"): Promise<
   await sql`
     INSERT INTO ai_usage (day, route, calls) VALUES (${day}, ${route}, 1)
     ON CONFLICT (day, route) DO UPDATE SET calls = ai_usage.calls + 1`;
+}
+
+// ---- Profile (single row, id = 1) + history aggregates ----
+
+interface ProfileRow {
+  name: string | null;
+  calorie_goal: number;
+  protein_target: number | null;
+  carbs_target: number | null;
+  fat_target: number | null;
+  height_cm: number | null;
+  weight_kg: number | null;
+  age: number | null;
+  sex: string | null;
+  activity: number | null;
+}
+
+function toProfile(r: ProfileRow): Profile {
+  return {
+    name: r.name,
+    calorieGoal: r.calorie_goal,
+    proteinTarget: r.protein_target,
+    carbsTarget: r.carbs_target,
+    fatTarget: r.fat_target,
+    heightCm: r.height_cm,
+    weightKg: r.weight_kg,
+    age: r.age,
+    sex: (r.sex as Profile["sex"]) ?? null,
+    activity: r.activity,
+  };
+}
+
+/** Fetch the single profile row (creating the default if it's missing). */
+export async function getProfile(): Promise<Profile> {
+  let [row] = await sql<ProfileRow[]>`SELECT * FROM profile WHERE id = 1`;
+  if (!row) {
+    [row] = await sql<ProfileRow[]>`
+      INSERT INTO profile (id) VALUES (1)
+      ON CONFLICT (id) DO UPDATE SET id = 1 RETURNING *`;
+  }
+  return toProfile(row);
+}
+
+/** Upsert the profile. Only provided fields change. */
+export async function saveProfile(p: Partial<Profile>): Promise<Profile> {
+  const [row] = await sql<ProfileRow[]>`
+    UPDATE profile SET
+      name           = ${p.name ?? null},
+      calorie_goal   = ${p.calorieGoal ?? 2000},
+      protein_target = ${p.proteinTarget ?? null},
+      carbs_target   = ${p.carbsTarget ?? null},
+      fat_target     = ${p.fatTarget ?? null},
+      height_cm      = ${p.heightCm ?? null},
+      weight_kg      = ${p.weightKg ?? null},
+      age            = ${p.age ?? null},
+      sex            = ${p.sex ?? null},
+      activity       = ${p.activity ?? null},
+      updated_at     = now()
+    WHERE id = 1
+    RETURNING *`;
+  return toProfile(row);
+}
+
+/** Per-day totals (calories + macros) for a date range, newest first. */
+export async function getDailySummaries(from: string, to: string): Promise<DaySummary[]> {
+  const rows = await sql<
+    { day: string; calories: number; protein: number; carbs: number; fat: number; entries: number }[]
+  >`
+    SELECT day,
+      COALESCE(SUM(calories * qty), 0)::float8 AS calories,
+      COALESCE(SUM(protein  * qty), 0)::float8 AS protein,
+      COALESCE(SUM(carbs    * qty), 0)::float8 AS carbs,
+      COALESCE(SUM(fat      * qty), 0)::float8 AS fat,
+      COUNT(*)::int AS entries
+    FROM log_entries
+    WHERE day BETWEEN ${from} AND ${to}
+    GROUP BY day
+    ORDER BY day DESC`;
+  return rows.map((r) => ({
+    day: r.day,
+    calories: Math.round(r.calories),
+    protein: Math.round(r.protein),
+    carbs: Math.round(r.carbs),
+    fat: Math.round(r.fat),
+    entries: r.entries,
+  }));
 }

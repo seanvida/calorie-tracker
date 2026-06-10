@@ -13,8 +13,11 @@ macro bars update live. **Nothing is logged until you review and edit it** in a
 preview card (name, 0.5-step servings with live recompute, macros). Entries are
 grouped by meal (Breakfast / Lunch / Dinner / Snack), each with an **editable
 serving count**, and persist in a hosted **Supabase (Postgres)** database — the
-same data on every device, surviving deploys. AI calls are guarded by caching,
-de-duplication, image compression, and rate limiting. No login, no accounts (yet).
+same data on every device, surviving deploys. Four tabs: **Day** (with
+prev/next + date-picker navigation), **History**, **Trends** (calorie & macro
+charts), and **Profile** (goal + macro targets that drive the daily visuals). AI
+calls are guarded by caching, de-dup, image compression, and rate limiting.
+**Mobile-first, installable PWA, deployed on Vercel.** No login, no accounts (yet).
 
 ## Run it
 
@@ -60,34 +63,28 @@ app/
   api/log/route.ts        GET (by date) + POST (add, with meal)
   api/log/[id]/route.ts   PATCH (change qty) + DELETE
   api/foods/route.ts      GET ?q= — catalogue search (Supabase first, Gemini fallback)
-  api/nutrition/text/route.ts    POST description -> AI nutrition
-  api/nutrition/image/route.ts   POST photo -> AI nutrition
+  api/nutrition/{text,image}/route.ts   POST description/photo -> AI nutrition
+  api/profile/route.ts    GET + PUT the single-user profile
+  api/summary/route.ts    GET ?from&to — per-day totals (history + trends)
 components/
-  AppHeader.tsx           Brand wordmark + live date & clock
-  DailySummary.tsx        Calorie goal hero: progress bar + editable goal + macros
-  MacroBars.tsx           Protein/carbs/fat bars vs. target
-  MealSection.tsx         One meal group (icon, subtotal, entries, empty state)
-  FoodEntryCard.tsx       Card-style logged entry + serving (qty) stepper
-  MealPicker.tsx          Breakfast/Lunch/Dinner/Snack target selector
-  SearchBar / FoodCard / FoodList   Quick-add catalog
-  TextPanel / PhotoPanel                   AI add flows
+  AppHeader / DailySummary / MacroBars / MealSection / FoodEntryCard   Day view
+  MealPicker / SearchBar / FoodCard / FoodList   Quick-add catalog
+  TextPanel / PhotoPanel    AI add flows
   PendingPanel / PendingItemCard / ServingStepper   Review-before-commit editor
-  Spinner.tsx / ErrorNote.tsx              Loading + error UI
+  BottomNav / DateNav / HistoryView / TrendsView / ProfileView   Tabs + views
+  PwaRegister.tsx           Service-worker registration
+  Spinner.tsx / ErrorNote.tsx   Loading + error UI
 lib/
-  types.ts                Food, LogEntry, CatalogFood, PendingItem, etc.
-  db.ts                   Supabase client + queries: log, catalogue, AI cache/usage
-  foods.ts                Static curated Indian core (also the empty-search browse)
-  gemini.ts               Gemini REST wrapper + nutrition schema/types
-  nutrition.ts            Goal/macro targets, traffic-light, meal-by-hour, validateNutrition
-  ai-guard.ts             In-memory rate limit + short-window request de-dup
-  image.ts                Client-side photo downscale/compress before upload
-scripts/
-  gen-foods-seed.mjs      Builds foods_seed.json from USDA SR Legacy + Indian core
-  seed-foods.mjs          Idempotently seeds the foods table (node scripts/seed-foods.mjs)
-  foods_seed.json         Generated seed data (~7.8k foods)
-supabase/schema.sql       Postgres schema — run once in the Supabase SQL Editor
-docs/                     Dated decision logs
-PLAN.md                   What we built / improved / roadmap
+  types.ts    Food, LogEntry, CatalogFood, PendingItem, Profile, DaySummary
+  db.ts       Supabase queries: log, catalogue, AI cache/usage, profile, summaries
+  foods.ts    Static curated Indian core (also the empty-search browse)
+  gemini.ts   Gemini REST wrapper + nutrition schema/types
+  nutrition.ts  Goal/macro targets, traffic-light, validateNutrition, suggestGoal
+  ai-guard.ts / image.ts / date.ts   Rate-limit+de-dup / image compress / date helpers
+scripts/      gen-foods-seed.mjs, seed-foods.mjs, foods_seed.json, gen-icons.mjs
+public/       manifest.webmanifest, sw.js, icon-*.png (PWA assets)
+supabase/schema.sql   Postgres schema — run once in the Supabase SQL Editor
+docs/         Dated decision logs   ·   PLAN.md   What we built + roadmap
 ```
 
 ## Design system
@@ -95,17 +92,13 @@ PLAN.md                   What we built / improved / roadmap
 Defined in `tailwind.config.ts` + `globals.css`. **Aesthetic: warm editorial
 wellness** — a calm "nutrition journal", not a generic dashboard.
 
-- **Canvas:** warm paper (`paper` `#FBF8F2`) with a faint two-tone radial grain;
-  white `surface` cards.
-- **Ink:** `ink` / `ink-2` / `ink-3` for primary/secondary/faint text.
-- **Brand:** deep matcha green (`matcha`, `matcha-deep`, `matcha-soft/tint`).
-- **Macros:** `protein` (green), `carbs` (honey), `fat` (clay) — used everywhere
-  macros appear so the colors are learnable.
-- **Progress states:** `good` (green) / `warn` (amber) / `over` (red).
-- **Type:** `font-display` (Fraunces) for the wordmark and big numbers;
-  `font-body` (Hanken Grotesk) elsewhere. `.nums` enables tabular figures.
-- **Motion:** `animate-fade-up` / `animate-scale-in`; meal sections stagger in.
-- Rounded `2xl`/`3xl` cards, `shadow-card` / `shadow-lift`.
+- **Canvas:** warm `paper` `#FBF8F2` (faint radial grain); white `surface` cards.
+  Text `ink`/`ink-2`/`ink-3`. Brand: deep matcha (`matcha`/`matcha-deep`/`-soft`/`-tint`).
+- **Macros:** `protein` (green), `carbs` (honey), `fat` (clay) — learnable colors,
+  reused in the trend charts. **Progress:** `good`/`warn`/`over` (green/amber/red).
+- **Type:** `font-display` (Fraunces) for wordmark + big numbers; `font-body`
+  (Hanken Grotesk) elsewhere; `.nums` = tabular figures. Rounded `2xl`/`3xl` cards,
+  `shadow-card`/`shadow-lift`, `animate-fade-up`/`animate-scale-in`.
 
 ## Architecture notes
 
@@ -121,10 +114,20 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
   updating the row's quantity. The UI updates optimistically and rolls back on
   failure; the card's steppers disable while the request is in flight. Calories
   and macros are stored per-serving and multiplied by `qty` for display/totals.
-- **Daily goal:** stored in `localStorage` (`calorie-tracker.goal`, default
-  2000), editable in the hero. Macro gram targets are derived from the goal
-  (`macroTargets`, 30/45/25 split). The calorie bar color comes from
-  `calorieState` (green <90%, amber 90–100%, red >100%).
+- **Views & navigation:** `page.tsx` switches between four tabs via `BottomNav`
+  (`view` state). **Day** uses `DateNav` (prev/next + native date picker, capped
+  at today) and a `selectedDate` — the log re-fetches per day, and adds target
+  that day. **History** (`/api/summary`) lists logged days; tapping one opens it.
+  **Trends** renders two CSS-bar charts (calories vs goal with a goal line; macros
+  stacked by kcal contribution) over a continuous date range. **Profile** edits
+  name/goal/macro targets (+ optional body stats → `suggestGoal`, Mifflin-St Jeor).
+- **Daily goal & macros come from the profile** (Supabase, single row id=1, via
+  `/api/profile`). The hero's goal edit also `PUT`s the profile. Macro targets are
+  `resolveMacroTargets` (explicit profile targets, else the 30/45/25 goal split).
+  The calorie bar color comes from `calorieState` (green <90%, amber 90–100%, red >100%).
+- **PWA:** `public/manifest.webmanifest` + generated icons + `public/sw.js`
+  (registered by `PwaRegister`; network-first shell, never caches `/api`) make it
+  installable. `app/layout.tsx` sets the manifest, theme color, and apple-touch icon.
 - **Catalogue search (two layers):** quick-add with an empty box browses the
   curated Indian core (`lib/foods.ts`, no fetch). Typing hits
   `GET /api/foods?q=` → `searchFoods` queries Supabase first (tokenized: every
@@ -153,21 +156,13 @@ wellness** — a calm "nutrition journal", not a generic dashboard.
   the API paths (local search hits stay unthrottled); photos are downscaled to
   ~1024px JPEG client-side (`lib/image.ts`) before upload; and `recordAiUsage`
   increments a daily `ai_usage` counter so real call volume is visible.
-- **Database:** `lib/db.ts` connects to Supabase Postgres via `DATABASE_URL`
-  using the `postgres` driver (tagged-template queries → parameterized + safe).
-  All query functions are **async**; the API routes `await` them. The client is
-  cached on `globalThis` to avoid exhausting pooler connections across dev hot
-  reloads. The schema is created once via `supabase/schema.sql`, not at runtime.
-
-### Why Supabase + the `postgres` driver
-
-Serverless hosts (Vercel) have an ephemeral filesystem, so the old local SQLite
-file couldn't persist. Supabase gives a hosted Postgres on the free tier. The
-lightweight `postgres` driver keeps the raw-SQL style of the old code. Routes set
-`runtime = "nodejs"` because the driver uses TCP sockets (not available on Edge).
-We connect through Supabase's **Transaction pooler** (port 6543), so the client
-uses `prepare: false` (transaction-mode pooling can't reuse prepared statements)
-and `ssl: "require"`.
+- **Database:** `lib/db.ts` connects to Supabase Postgres via `DATABASE_URL` with
+  the `postgres` driver (tagged-template queries → parameterized + safe). All query
+  functions are **async** (routes `await` them); the client is cached on
+  `globalThis`. We use Supabase's **Transaction pooler** (port 6543), so
+  `prepare: false` + `ssl: "require"`; routes pin `runtime = "nodejs"` (TCP, not
+  Edge). Chosen over local SQLite because serverless has an ephemeral filesystem.
+  Schema lives in `supabase/schema.sql` (run once), not created at runtime.
 
 ## Data model
 
@@ -183,16 +178,17 @@ fallback. `lib/foods.ts` stays as the curated Indian core for the empty-search
 browse (and is merged into the seed).
 
 `ai_cache`: `kind` ('text'|'image'), `cache_key` (unique with kind), `result`
-(jsonb), `created_at` — caches Gemini responses. `ai_usage`: `day`, `route`
-('text'|'image'|'foods'), `calls` — rough daily counter of real API calls.
+(jsonb) — caches Gemini responses. `ai_usage`: `day`, `route`, `calls` — daily
+call counter. `profile`: single row (`id`=1) — `name`, `calorie_goal`,
+`{protein,carbs,fat}_target`, `height_cm`/`weight_kg`/`age`/`sex`/`activity`.
+
+## Deploy
+
+Live on **Vercel** (auto-deploys on push to `main`). Env vars set in the Vercel
+project: `GEMINI_API_KEY`, `DATABASE_URL`. PWA-installable from the live URL.
 
 ## Next steps
 
-Not built yet — natural follow-ups:
-
-- **Review AI-sourced foods** — an admin view over `foods WHERE NOT reviewed` to
-  vet/correct Gemini entries (flip `reviewed` once checked).
-- **Food history & charts** — weekly/monthly calorie & macro trends.
-- **User preferences** — custom macro split, units, theme, persisted server-side.
-- **Barcode scanning** — look up packaged foods by barcode.
-- Date navigation; custom foods; a test suite.
+- **Review AI-sourced foods** — admin view over `foods WHERE NOT reviewed`.
+- **Barcode scanning**; **accounts / multi-user**; a **native app** wrapper.
+- **User preferences** (units, theme); custom foods; a test suite.

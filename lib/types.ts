@@ -99,3 +99,25 @@ export interface DailyTotals {
   carbs: number;
   fat: number;
 }
+
+/** One day's rolled-up totals, for history + trends. */
+export interface DaySummary extends DailyTotals {
+  day: string; // YYYY-MM-DD
+  entries: number;
+}
+
+/** Single-user profile, persisted in Supabase. Drives the daily goal + macros. */
+export interface Profile {
+  name: string | null;
+  calorieGoal: number;
+  /** Explicit macro gram targets; null → derive from the calorie goal. */
+  proteinTarget: number | null;
+  carbsTarget: number | null;
+  fatTarget: number | null;
+  heightCm: number | null;
+  weightKg: number | null;
+  age: number | null;
+  sex: "male" | "female" | null;
+  /** Activity multiplier (1.2 sedentary … 1.9 very active) for goal suggestion. */
+  activity: number | null;
+}

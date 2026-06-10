@@ -19,6 +19,40 @@ export function macroTargets(goal: number): MacroTargets {
   };
 }
 
+/**
+ * Resolve macro targets from a profile: use any explicit targets, falling back
+ * to the calorie-goal split for the rest.
+ */
+export function resolveMacroTargets(
+  goal: number,
+  explicit: { protein?: number | null; carbs?: number | null; fat?: number | null },
+): MacroTargets {
+  const split = macroTargets(goal);
+  return {
+    protein: explicit.protein ?? split.protein,
+    carbs: explicit.carbs ?? split.carbs,
+    fat: explicit.fat ?? split.fat,
+  };
+}
+
+/**
+ * Suggest a daily calorie goal from body stats using Mifflin-St Jeor BMR ×
+ * activity factor. Returns null if the inputs needed aren't present.
+ */
+export function suggestGoal(p: {
+  weightKg?: number | null;
+  heightCm?: number | null;
+  age?: number | null;
+  sex?: "male" | "female" | null;
+  activity?: number | null;
+}): number | null {
+  const { weightKg, heightCm, age, sex, activity } = p;
+  if (!weightKg || !heightCm || !age || !sex) return null;
+  const bmr =
+    10 * weightKg + 6.25 * heightCm - 5 * age + (sex === "male" ? 5 : -161);
+  return Math.round((bmr * (activity || 1.2)) / 10) * 10;
+}
+
 export type ProgressState = "good" | "warn" | "over";
 
 /** Traffic-light state for calories consumed vs. goal. */
