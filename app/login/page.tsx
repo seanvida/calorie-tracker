@@ -1,12 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { detectInAppBrowser } from "@/lib/ua";
 
-/** Sign-in screen. Single-button Google OAuth. */
+/** Sign-in screen. Google OAuth, with an in-app-browser escape hatch. */
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inApp, setInApp] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setInApp(detectInAppBrowser());
+  }, []);
 
   async function signIn() {
     setLoading(true);
@@ -24,6 +31,16 @@ export default function LoginPage() {
     }
   }
 
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.origin);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      window.prompt("Copy this link, then open it in Safari or Chrome:", window.location.origin);
+    }
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center px-5">
       <div className="w-full max-w-sm space-y-6 text-center">
@@ -32,6 +49,26 @@ export default function LoginPage() {
           <h1 className="font-display text-3xl font-semibold text-ink">Calorie Tracker</h1>
           <p className="text-sm text-ink-2">Your own calorie &amp; macro journal for everyday Indian food. Sign in to keep your meals private to you.</p>
         </div>
+
+        {inApp && (
+          <div className="space-y-3 rounded-2xl border border-warn/40 bg-warn/10 p-4 text-left">
+            <p className="text-sm font-semibold text-ink">
+              ⚠️ Open in your browser to sign in
+            </p>
+            <p className="text-xs leading-relaxed text-ink-2">
+              You’re in {inApp}’s in-app browser, where Google blocks sign-in for security.
+              Tap the <span className="font-semibold">•••</span> (or Share) menu at the corner and choose
+              <span className="font-semibold"> “Open in Browser”</span> — then sign in there.
+            </p>
+            <button
+              onClick={copyLink}
+              className="w-full rounded-xl bg-matcha px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-matcha-deep active:scale-[0.99]"
+            >
+              {copied ? "Link copied ✓ — paste in Safari/Chrome" : "Copy link to open in browser"}
+            </button>
+          </div>
+        )}
+
         <button
           onClick={signIn}
           disabled={loading}
@@ -43,7 +80,7 @@ export default function LoginPage() {
             <path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84z" />
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z" />
           </svg>
-          {loading ? "Opening Google…" : "Continue with Google"}
+          {loading ? "Opening Google…" : inApp ? "Try Google anyway" : "Continue with Google"}
         </button>
         {error && <p className="text-sm text-over">{error}</p>}
         <p className="text-[11px] text-ink-3">We only use your Google account to sign you in. Your food log stays private to you.</p>
