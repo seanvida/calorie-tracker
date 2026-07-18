@@ -21,11 +21,24 @@ const globalForDb = globalThis as unknown as {
   _sql?: ReturnType<typeof postgres>;
 };
 
+// Serverless (Vercel) spins up many function instances; each one that opens the
+// driver's default of 10 pooler connections quickly exhausts Supabase's
+// transaction pooler, so new queries hang until the function times out (504).
+// Cap at one connection per instance — the pooler fans concurrency out across
+// instances — release idle connections fast, and fail fast on connect so a stuck
+// DB surfaces as a quick error instead of a gateway timeout.
 const sql =
   globalForDb._sql ??
-  postgres(connectionString, { prepare: false, ssl: "require" });
+  postgres(connectionString, {
+    prepare: false,
+    ssl: "require",
+    max: 1,
+    idle_timeout: 20,
+    connect_timeout: 10,
+  });
 
-if (process.env.NODE_ENV !== "production") globalForDb._sql = sql;
+// Reuse the client across invocations on a warm instance (and dev hot reloads).
+globalForDb._sql = sql;
 
 export { sql };
 
