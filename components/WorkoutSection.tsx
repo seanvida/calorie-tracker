@@ -1,64 +1,75 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { NewWorkoutEntry, WorkoutEntry } from "@/lib/types";
-import type { WorkoutEstimate } from "@/lib/gemini";
+import { ACTIVITIES, INTENSITIES, caloriesBurned } from "@/lib/workouts";
 import Spinner from "./Spinner";
-import ErrorNote from "./ErrorNote";
 
 interface WorkoutSectionProps {
   workouts: WorkoutEntry[];
   burned: number;
+  /** Body weight (kg) from the profile; needed to compute calories. */
+  weightKg: number | null;
   onAdd: (w: Omit<NewWorkoutEntry, "day">) => Promise<boolean>;
   onDelete: (id: number) => void;
+  onSaveWeight: (kg: number) => void;
 }
 
-/** Day-view workout log: describe a workout → AI estimates calories → edit → save. */
-export default function WorkoutSection({ workouts, burned, onAdd, onDelete }: WorkoutSectionProps) {
-  const [desc, setDesc] = useState("");
-  const [loading, setLoading] = useState(false);
+/** Day-view workout log: pick an activity + minutes → MET-based calories (no AI). */
+export default function WorkoutSection({
+  workouts,
+  burned,
+  weightKg,
+  onAdd,
+  onDelete,
+  onSaveWeight,
+}: WorkoutSectionProps) {
+  const [activityId, setActivityId] = useState(ACTIVITIES[0].id);
+  const [intensityId, setIntensityId] = useState("moderate");
+  const [minutes, setMinutes] = useState("30");
+  const [caloriesEdit, setCaloriesEdit] = useState<number | null>(null); // manual override
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [est, setEst] = useState<WorkoutEstimate | null>(null);
+  const [weightDraft, setWeightDraft] = useState("");
 
-  async function estimate() {
-    const description = desc.trim();
-    if (!description) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/workouts/estimate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn’t estimate this workout.");
-      setEst(data as WorkoutEstimate);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
-    } finally {
-      setLoading(false);
-    }
+  const activity = ACTIVITIES.find((a) => a.id === activityId) ?? ACTIVITIES[0];
+  const intensity = INTENSITIES.find((i) => i.id === intensityId) ?? INTENSITIES[1];
+  const mins = Number(minutes) || 0;
+
+  // Auto-computed calories; a manual edit (caloriesEdit) takes precedence until
+  // the inputs change again.
+  const computed = useMemo(
+    () => caloriesBurned(activity.met * intensity.factor, weightKg ?? 0, mins),
+    [activity.met, intensity.factor, weightKg, mins],
+  );
+  const calories = caloriesEdit ?? computed;
+
+  function pick<T>(setter: (v: T) => void) {
+    return (v: T) => {
+      setter(v);
+      setCaloriesEdit(null); // recompute when any input changes
+    };
   }
 
   async function save() {
-    if (!est) return;
+    if (!weightKg || mins <= 0 || calories <= 0) return;
     setSaving(true);
     const ok = await onAdd({
-      activity: est.activity.trim() || "Workout",
-      durationMin: est.durationMin > 0 ? est.durationMin : null,
-      calories: Math.max(0, Math.round(est.calories)),
-      notes: desc.trim() || null,
+      activity: `${activity.name} (${intensity.label})`,
+      durationMin: mins,
+      calories: Math.round(calories),
+      notes: null,
     });
     setSaving(false);
     if (ok) {
-      setEst(null);
-      setDesc("");
+      setMinutes("30");
+      setCaloriesEdit(null);
     }
   }
 
-  const num = (v: string) => (v === "" ? 0 : Number(v));
+  function submitWeight() {
+    const kg = Math.round(Number(weightDraft));
+    if (Number.isFinite(kg) && kg >= 20 && kg <= 400) onSaveWeight(kg);
+  }
 
   return (
     <section className="space-y-4 rounded-3xl border border-line bg-paper-2/40 p-4 sm:p-5">
@@ -93,49 +104,67 @@ export default function WorkoutSection({ workouts, burned, onAdd, onDelete }: Wo
         </div>
       )}
 
-      {/* Describe → estimate */}
-      {!est && (
-        <div className="space-y-2">
-          <textarea
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            placeholder="Describe your workout — e.g. ran 5k, 45 min cycling, 30 min strength…"
-            rows={2}
-            className="w-full resize-none rounded-2xl border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none transition focus:border-matcha"
-          />
-          <button
-            onClick={estimate}
-            disabled={loading || !desc.trim()}
-            className="w-full rounded-xl bg-matcha px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-matcha-deep active:scale-[0.99] disabled:opacity-50"
-          >
-            {loading ? <Spinner label="Estimating…" /> : "Estimate calories"}
-          </button>
+      {weightKg == null ? (
+        // Need body weight to estimate calories — collect it once (saved to profile).
+        <div className="space-y-2 rounded-2xl border border-line bg-surface p-3">
+          <p className="text-sm text-ink-2">Set your weight to estimate calories burned.</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={20}
+              max={400}
+              value={weightDraft}
+              onChange={(e) => setWeightDraft(e.target.value)}
+              placeholder="Weight"
+              className="nums w-28 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink outline-none transition focus:border-matcha"
+            />
+            <span className="text-xs text-ink-3">kg</span>
+            <button
+              onClick={submitWeight}
+              disabled={!weightDraft}
+              className="ml-auto rounded-xl bg-matcha px-4 py-2 text-sm font-semibold text-paper transition hover:bg-matcha-deep active:scale-95 disabled:opacity-50"
+            >
+              Save
+            </button>
+          </div>
         </div>
-      )}
-
-      {error && <ErrorNote message={error} onDismiss={() => setError(null)} />}
-
-      {/* Editable estimate → save */}
-      {est && (
-        <div className="animate-scale-in space-y-3 rounded-2xl border border-matcha/30 bg-matcha-tint p-3">
-          {est.note && <p className="rounded-lg bg-surface/70 px-2.5 py-2 text-[11px] leading-relaxed text-ink-3">{est.note}</p>}
-          <input
-            type="text"
-            value={est.activity}
-            onChange={(e) => setEst({ ...est, activity: e.target.value })}
-            placeholder="Activity"
-            className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm font-semibold text-ink outline-none transition focus:border-matcha"
-          />
+      ) : (
+        <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-3">Activity</span>
+              <select
+                value={activityId}
+                onChange={(e) => pick(setActivityId)(e.target.value)}
+                className="rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none transition focus:border-matcha"
+              >
+                {ACTIVITIES.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-3">Intensity</span>
+              <select
+                value={intensityId}
+                onChange={(e) => pick(setIntensityId)(e.target.value)}
+                className="rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none transition focus:border-matcha"
+              >
+                {INTENSITIES.map((i) => (
+                  <option key={i.id} value={i.id}>{i.label}</option>
+                ))}
+              </select>
+            </label>
             <label className="flex flex-col gap-1">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-3">Minutes</span>
               <input
                 type="number"
                 inputMode="numeric"
-                min={0}
-                value={est.durationMin || ""}
-                onChange={(e) => setEst({ ...est, durationMin: num(e.target.value) })}
-                className="nums w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none transition focus:border-matcha"
+                min={1}
+                value={minutes}
+                onChange={(e) => pick(setMinutes)(e.target.value)}
+                className="nums rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none transition focus:border-matcha"
               />
             </label>
             <label className="flex flex-col gap-1">
@@ -144,28 +173,23 @@ export default function WorkoutSection({ workouts, burned, onAdd, onDelete }: Wo
                 type="number"
                 inputMode="numeric"
                 min={0}
-                value={est.calories}
-                onChange={(e) => setEst({ ...est, calories: num(e.target.value) })}
-                className="nums w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none transition focus:border-matcha"
+                value={calories || ""}
+                onChange={(e) => setCaloriesEdit(e.target.value === "" ? 0 : Number(e.target.value))}
+                className="nums rounded-lg border border-line bg-surface px-2.5 py-2 text-sm text-ink outline-none transition focus:border-matcha"
               />
             </label>
           </div>
-          <div className="flex items-center gap-3 pt-0.5">
-            <button
-              onClick={save}
-              disabled={saving}
-              className="rounded-xl bg-matcha px-4 py-2 text-sm font-semibold text-paper transition hover:bg-matcha-deep active:scale-95 disabled:opacity-50"
-            >
-              {saving ? <Spinner label="Adding…" /> : "Add workout"}
-            </button>
-            <button
-              onClick={() => setEst(null)}
-              disabled={saving}
-              className="text-sm font-semibold text-ink-2 transition hover:text-ink disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          </div>
+
+          <button
+            onClick={save}
+            disabled={saving || mins <= 0 || calories <= 0}
+            className="w-full rounded-xl bg-matcha px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-matcha-deep active:scale-[0.99] disabled:opacity-50"
+          >
+            {saving ? <Spinner label="Adding…" /> : `Add workout · ${Math.round(calories)} kcal`}
+          </button>
+          <p className="px-1 text-[11px] text-ink-3">
+            Estimated from {activity.name.toLowerCase()} × {weightKg} kg × {mins} min. Edit calories if you know better.
+          </p>
         </div>
       )}
     </section>

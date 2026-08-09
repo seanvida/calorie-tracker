@@ -175,6 +175,20 @@ export default function Home() {
       .catch(() => {});
   }
 
+  /** Save body weight (used by the workout calculator); persists to the profile. */
+  function saveWeight(kg: number) {
+    const updated: Profile = { ...(profile ?? DEFAULT_PROFILE), weightKg: kg };
+    setProfile(updated);
+    fetch("/api/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updated),
+    })
+      .then((r) => r.json())
+      .then((d) => d.profile && setProfile(d.profile))
+      .catch(() => {});
+  }
+
   const totals = useMemo<DailyTotals>(
     () =>
       entries.reduce<DailyTotals>(
@@ -711,7 +725,14 @@ export default function Home() {
         </section>
 
         {/* Workouts (calories burned) — logged per day, shown in trends too. */}
-        <WorkoutSection workouts={workouts} burned={burned} onAdd={addWorkout} onDelete={deleteWorkout} />
+        <WorkoutSection
+          workouts={workouts}
+          burned={burned}
+          weightKg={profile?.weightKg ?? null}
+          onAdd={addWorkout}
+          onDelete={deleteWorkout}
+          onSaveWeight={saveWeight}
+        />
         </div>
       )}
       </main>
