@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import type { DaySummary } from "@/lib/types";
 import { calorieState } from "@/lib/nutrition";
 import { formatDayLong, todayKey, addDays } from "@/lib/date";
+import { useSummary } from "@/lib/summaryCache";
 
 interface HistoryViewProps {
   goal: number;
@@ -12,17 +12,10 @@ const STATE_BG: Record<string, string> = { good: "bg-good", warn: "bg-warn", ove
 
 /** List of past days with their daily totals; tap a day to open it. */
 export default function HistoryView({ goal, onOpenDay }: HistoryViewProps) {
-  const [days, setDays] = useState<DaySummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error } = useSummary();
+  const days = data ? data.days.filter((x: DaySummary) => x.entries > 0) : null;
 
-  useEffect(() => {
-    fetch("/api/summary")
-      .then((r) => r.json())
-      .then((d) => setDays((d.days ?? []).filter((x: DaySummary) => x.entries > 0)))
-      .catch(() => setError("Couldn’t load history."));
-  }, []);
-
-  if (error) return <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-6 text-center text-sm text-ink-3">{error}</p>;
+  if (error) return <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-6 text-center text-sm text-ink-3">Couldn’t load history.</p>;
   if (!days) return <div className="space-y-2">{[0, 1, 2, 3].map((i) => <div key={i} className="h-16 animate-pulse rounded-2xl bg-surface/60" />)}</div>;
   if (days.length === 0) {
     return (

@@ -6,16 +6,16 @@ interface ServingStepperProps {
   max?: number;
 }
 
-/** Compact − / value / + control for the serving multiplier (0.5 steps). */
+/** Compact − / value / + control for the serving multiplier (0.25 steps). */
 export default function ServingStepper({
   value,
   onChange,
-  min = 0.5,
-  step = 0.5,
+  min = 0.25,
+  step = 0.25,
   max = 50,
 }: ServingStepperProps) {
-  const set = (next: number) => onChange(Math.min(max, Math.max(min, Math.round(next * 2) / 2)));
-  const label = Number.isInteger(value) ? `${value}` : value.toFixed(1);
+  const set = (next: number) => onChange(Math.min(max, Math.max(min, Math.round(next * 4) / 4)));
+  const label = Number.isInteger(value) ? `${value}` : String(Math.round(value * 100) / 100);
 
   return (
     <div className="inline-flex items-center gap-1 rounded-xl border border-line bg-surface p-0.5">

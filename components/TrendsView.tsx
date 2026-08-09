@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import type { DaySummary } from "@/lib/types";
 import { calorieState } from "@/lib/nutrition";
 import { addDays, dayOfMonth, formatDayShort } from "@/lib/date";
+import { useSummary } from "@/lib/summaryCache";
 
 interface TrendsViewProps {
   goal: number;
@@ -15,25 +16,20 @@ const STATE_BG: Record<string, string> = {
 
 /** Calories vs goal + macro breakdown over the last 30 days. */
 export default function TrendsView({ goal }: TrendsViewProps) {
-  const [days, setDays] = useState<DaySummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error } = useSummary();
 
-  useEffect(() => {
-    fetch("/api/summary")
-      .then((r) => r.json())
-      .then((d) => {
-        // Fill the full from..to range so the axis is continuous (gaps = 0).
-        const byDay = new Map<string, DaySummary>((d.days ?? []).map((x: DaySummary) => [x.day, x]));
-        const out: DaySummary[] = [];
-        for (let day = d.from; day <= d.to; day = addDays(day, 1)) {
-          out.push(byDay.get(day) ?? { day, calories: 0, protein: 0, carbs: 0, fat: 0, entries: 0 });
-        }
-        setDays(out);
-      })
-      .catch(() => setError("Couldn’t load trends."));
-  }, []);
+  // Fill the full from..to range so the axis is continuous (gaps = 0).
+  const days = useMemo<DaySummary[] | null>(() => {
+    if (!data) return null;
+    const byDay = new Map<string, DaySummary>(data.days.map((x) => [x.day, x]));
+    const out: DaySummary[] = [];
+    for (let day = data.from; day <= data.to; day = addDays(day, 1)) {
+      out.push(byDay.get(day) ?? { day, calories: 0, protein: 0, carbs: 0, fat: 0, entries: 0 });
+    }
+    return out;
+  }, [data]);
 
-  if (error) return <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-6 text-center text-sm text-ink-3">{error}</p>;
+  if (error) return <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-6 text-center text-sm text-ink-3">Couldn’t load trends.</p>;
   if (!days) return <ChartSkeleton />;
 
   const logged = days.filter((d) => d.entries > 0);

@@ -15,6 +15,7 @@ import type { NutritionItem, NutritionResult } from "@/lib/gemini";
 import { DEFAULT_GOAL, mealForHour, resolveMacroTargets } from "@/lib/nutrition";
 import { todayKey } from "@/lib/date";
 import { compressImage } from "@/lib/image";
+import { invalidateSummary, refreshSummary } from "@/lib/summaryCache";
 import type { Profile } from "@/lib/types";
 import AppHeader from "@/components/AppHeader";
 import DailySummary from "@/components/DailySummary";
@@ -119,6 +120,8 @@ export default function Home() {
       .then((d) => d.profile && setProfile(d.profile))
       .catch(() => setProfile(DEFAULT_PROFILE));
     setMealTarget(mealForHour(new Date().getHours()));
+    // Warm the History/Trends summary in the background so those tabs open instantly.
+    refreshSummary();
   }, []);
 
   // Load the selected day's log (re-runs when you navigate days).
@@ -214,6 +217,7 @@ export default function Home() {
     const data = await res.json();
     if (data.entry) {
       setEntries((prev) => [...prev, data.entry]);
+      invalidateSummary();
       return true;
     }
     return false;
@@ -232,6 +236,7 @@ export default function Home() {
     try {
       const res = await fetch(`/api/log/${id}`, { method: "DELETE" });
       if (!res.ok) setEntries(prev);
+      else invalidateSummary();
     } catch {
       setEntries(prev);
     } finally {
@@ -252,6 +257,7 @@ export default function Home() {
         body: JSON.stringify({ qty }),
       });
       if (!res.ok) setEntries(prev); // rollback on failure
+      else invalidateSummary();
     } catch {
       setEntries(prev);
     } finally {
@@ -453,20 +459,15 @@ export default function Home() {
               ))}
             </div>
           ) : entries.length === 0 ? (
-            <div className="animate-fade-up rounded-3xl border border-dashed border-line-2 bg-surface/50 p-8 text-center">
-              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-matcha-tint text-2xl">🍽️</div>
-              <p className="font-display text-lg font-semibold text-ink">
-                {isToday ? "Let’s log your first meal" : "Nothing logged on this day"}
-              </p>
-              <p className="mx-auto mt-1 max-w-xs text-sm text-ink-3">
-                {isToday
-                  ? "Search a food, describe your meal, or snap a photo — it only takes a few seconds."
-                  : "Add something below, or jump back to today."}
-              </p>
-              <button onClick={scrollToAdd} className="mt-4 rounded-xl bg-matcha px-4 py-2.5 text-sm font-semibold text-paper transition hover:bg-matcha-deep active:scale-95">
-                Add {isToday ? "your first meal" : "a meal"}
-              </button>
-            </div>
+            <button
+              onClick={scrollToAdd}
+              className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-line-2 bg-surface/50 px-4 py-3 text-left transition hover:border-matcha/50 hover:bg-matcha-tint"
+            >
+              <span className="text-lg">＋</span>
+              <span className="text-sm text-ink-2">
+                {isToday ? "Nothing logged yet — add your first meal" : "Nothing logged on this day — add a meal"}
+              </span>
+            </button>
           ) : (
             MEALS.map((meal, i) => (
               <div key={meal} className="animate-fade-up" style={{ animationDelay: `${i * 70}ms` }}>
