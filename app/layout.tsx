@@ -39,6 +39,9 @@ export const viewport: Viewport = {
   themeColor: "#3E6F48",
   width: "device-width",
   initialScale: 1,
+  // Lock scale so the installed PWA feels like a native app, not a zoomable page.
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
 };
 

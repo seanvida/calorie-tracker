@@ -9,8 +9,12 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    /* App-like feel: no double-tap zoom, and stop the page rubber-band bounce. */
+    touch-action: manipulation;
+    overscroll-behavior: none;
   }
   body {
+    overscroll-behavior: none;
     /* Warm paper with a faint grain so it never reads as flat white. */
     background-color: var(--paper);
     background-image:
