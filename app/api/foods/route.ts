@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { addCatalogFood, recordAiUsage, searchFoods } from "@/lib/db";
 import { analyzeNutrition, GeminiError } from "@/lib/gemini";
+import { buildPortions, toPer100 } from "@/lib/portions";
 import { clientKey, dedupe, rateLimit, tooManyRequests } from "@/lib/ai-guard";
 import { getUserId } from "@/lib/auth";
 
@@ -54,6 +55,9 @@ export async function GET(request: Request) {
       if (!item) return null;
       void recordAiUsage("foods");
       console.log(`[ai] foods fallback — "${key.slice(0, 60)}"`);
+      // If the model gave a serving weight, store gram-based data so this food
+      // gets a portion dropdown too (not just a single fixed serving).
+      const grams = item.grams && item.grams > 0 ? item.grams : null;
       return addCatalogFood({
         name: item.name,
         serving: item.serving,
@@ -62,6 +66,9 @@ export async function GET(request: Request) {
         carbs: item.carbs,
         fat: item.fat,
         source: "gemini",
+        per100: grams ? toPer100(item, grams) : null,
+        portions: grams ? buildPortions(item.serving || `${grams} g`, grams) : null,
+        defaultGrams: grams,
       });
     });
     if (!saved) {

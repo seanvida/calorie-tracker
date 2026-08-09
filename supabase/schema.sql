@@ -38,6 +38,17 @@ create table if not exists foods (
 -- fallback insert without ever creating a duplicate / re-querying the same food.
 create unique index if not exists idx_foods_name_lower on foods (lower(name));
 
+-- Gram-based portions: per-100g macros + a list of selectable portions, so a
+-- food can be logged by portion (dropdown) or by weight. Nullable — rows without
+-- these fall back to their single `serving` string. Backfilled by
+-- scripts/gen-portions.mjs + seed-foods.mjs; AI-added rows fill them on the fly.
+alter table foods add column if not exists kcal100       real;
+alter table foods add column if not exists protein100    real;
+alter table foods add column if not exists carbs100      real;
+alter table foods add column if not exists fat100        real;
+alter table foods add column if not exists portions      jsonb;
+alter table foods add column if not exists default_grams real;
+
 -- Persistent cache of Gemini responses, keyed by input, so identical text or
 -- (by content hash) image requests never hit the API twice.
 create table if not exists ai_cache (

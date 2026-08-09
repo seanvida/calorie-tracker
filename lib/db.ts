@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import type { CatalogFood, DaySummary, LogEntry, NewLogEntry, Profile } from "./types";
+import type { CatalogFood, DaySummary, LogEntry, NewLogEntry, Portion, Profile } from "./types";
 import type { NutritionResult } from "./gemini";
 
 // Hosted Postgres (Supabase). The connection string lives in DATABASE_URL.
@@ -133,10 +133,21 @@ interface CatalogRow {
   carbs: number;
   fat: number;
   source: string;
+  // Gram-based fields (nullable until a row is backfilled / imported).
+  kcal100?: number | null;
+  protein100?: number | null;
+  carbs100?: number | null;
+  fat100?: number | null;
+  portions?: Portion[] | null;
+  default_grams?: number | null;
 }
 
+// Columns selected for every catalogue read (kept in one place).
+const CATALOG_COLS = sql`id, name, serving, calories, protein, carbs, fat, source,
+  kcal100, protein100, carbs100, fat100, portions, default_grams`;
+
 function toCatalog(r: CatalogRow): CatalogFood {
-  return {
+  const food: CatalogFood = {
     id: Number(r.id),
     name: r.name,
     serving: r.serving,
@@ -146,6 +157,13 @@ function toCatalog(r: CatalogRow): CatalogFood {
     fat: r.fat,
     source: r.source === "gemini" ? "gemini" : "seed",
   };
+  // Attach gram-based data only when the row has per-100g values.
+  if (r.kcal100 != null) {
+    food.per100 = { calories: r.kcal100, protein: r.protein100 ?? 0, carbs: r.carbs100 ?? 0, fat: r.fat100 ?? 0 };
+    if (Array.isArray(r.portions) && r.portions.length) food.portions = r.portions;
+    if (r.default_grams != null) food.defaultGrams = r.default_grams;
+  }
+  return food;
 }
 
 /**
@@ -163,7 +181,7 @@ export async function searchFoods(q: string, limit = 50): Promise<CatalogFood[]>
   }
 
   const rows = await sql<CatalogRow[]>`
-    SELECT id, name, serving, calories, protein, carbs, fat, source
+    SELECT ${CATALOG_COLS}
     FROM foods
     WHERE ${where}
     ORDER BY (lower(name) = ${q.toLowerCase()}) DESC,
@@ -186,18 +204,28 @@ export async function addCatalogFood(f: {
   carbs: number;
   fat: number;
   source: "seed" | "gemini";
+  per100?: { calories: number; protein: number; carbs: number; fat: number } | null;
+  portions?: Portion[] | null;
+  defaultGrams?: number | null;
 }): Promise<CatalogFood> {
+  const p = f.per100 ?? null;
+  const portions = f.portions?.length
+    ? sql.json(f.portions as unknown as Parameters<typeof sql.json>[0])
+    : null;
   const [row] = await sql<CatalogRow[]>`
-    INSERT INTO foods (name, serving, calories, protein, carbs, fat, source, reviewed)
+    INSERT INTO foods (name, serving, calories, protein, carbs, fat, source, reviewed,
+                       kcal100, protein100, carbs100, fat100, portions, default_grams)
     VALUES (${f.name}, ${f.serving}, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat},
-            ${f.source}, false)
+            ${f.source}, false,
+            ${p?.calories ?? null}, ${p?.protein ?? null}, ${p?.carbs ?? null}, ${p?.fat ?? null},
+            ${portions}, ${f.defaultGrams ?? null})
     ON CONFLICT DO NOTHING
-    RETURNING id, name, serving, calories, protein, carbs, fat, source`;
+    RETURNING ${CATALOG_COLS}`;
   if (row) return toCatalog(row);
 
   // Name already existed — return the stored row.
   const [existing] = await sql<CatalogRow[]>`
-    SELECT id, name, serving, calories, protein, carbs, fat, source
+    SELECT ${CATALOG_COLS}
     FROM foods WHERE lower(name) = lower(${f.name}) LIMIT 1`;
   return toCatalog(existing);
 }

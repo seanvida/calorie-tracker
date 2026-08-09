@@ -1,9 +1,10 @@
 import type { Food } from "./types";
+import { buildPortions, parseGrams, toPer100 } from "./portions";
 
 // A catalog of 50+ common Indian foods. Calories/macros are reasonable
 // per-serving estimates for home-style portions — handy for quick logging,
 // not lab-precise. Values are per the serving described.
-export const FOODS: Food[] = [
+const CORE: Food[] = [
   // ---------- Grains & Breads ----------
   { id: "roti", name: "Roti / Chapati", category: "Grains & Breads", serving: "1 roti (~40g)", calories: 104, protein: 3, carbs: 22, fat: 1 },
   { id: "plain-rice", name: "Steamed Rice", category: "Grains & Breads", serving: "1 cup cooked (~150g)", calories: 205, protein: 4, carbs: 45, fat: 0.4 },
@@ -86,3 +87,18 @@ export const FOODS: Food[] = [
   { id: "papaya", name: "Papaya", category: "Fruits", serving: "1 cup cubed (~145g)", calories: 62, protein: 0.7, carbs: 16, fat: 0.4 },
   { id: "guava", name: "Guava", category: "Fruits", serving: "1 fruit (~100g)", calories: 68, protein: 2.6, carbs: 14, fat: 1 },
 ];
+
+/** Add per-100g + portion data to any core food whose serving states a weight. */
+function withPortions(f: Food): Food {
+  const grams = parseGrams(f.serving);
+  if (!grams) return f;
+  return {
+    ...f,
+    per100: toPer100(f, grams),
+    portions: buildPortions(f.serving, grams),
+    defaultGrams: grams,
+  };
+}
+
+/** The curated Indian core, enriched with gram-based portions where possible. */
+export const FOODS: Food[] = CORE.map(withPortions);

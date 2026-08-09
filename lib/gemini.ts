@@ -16,6 +16,8 @@ export interface NutritionItem {
   protein: number;
   carbs: number;
   fat: number;
+  /** Approx. weight of the stated serving in grams (drives portion recompute). */
+  grams?: number;
 }
 
 /** Structured result returned by both nutrition routes. */
@@ -43,13 +45,14 @@ const NUTRITION_SCHEMA = {
         properties: {
           name: { type: "string" },
           serving: { type: "string" },
+          grams: { type: "number" },
           calories: { type: "number" },
           protein: { type: "number" },
           carbs: { type: "number" },
           fat: { type: "number" },
         },
-        required: ["name", "serving", "calories", "protein", "carbs", "fat"],
-        propertyOrdering: ["name", "serving", "calories", "protein", "carbs", "fat"],
+        required: ["name", "serving", "grams", "calories", "protein", "carbs", "fat"],
+        propertyOrdering: ["name", "serving", "grams", "calories", "protein", "carbs", "fat"],
       },
     },
     total: {
@@ -72,6 +75,7 @@ const NUTRITION_SCHEMA = {
 const SYSTEM_INSTRUCTION = `You are a nutrition estimation assistant for a calorie tracker focused on Indian and common everyday foods.
 Identify each distinct food in the input and estimate its nutrition for a realistic single serving.
 - calories are kcal; protein, carbs, and fat are in grams.
+- "grams" is the approximate weight of that stated serving in grams (e.g. "1 cup" ≈ 150).
 - "total" must be the sum of all items.
 - If the input has no identifiable food, return an empty items array, zeroed total, and explain in "note".
 - Keep estimates reasonable for home-style portions; use the "note" field for assumptions (e.g. portion size, cooking style).`;
@@ -166,6 +170,7 @@ function normalize(r: NutritionResult): NutritionResult {
     protein: round(it.protein),
     carbs: round(it.carbs),
     fat: round(it.fat),
+    grams: typeof it.grams === "number" && isFinite(it.grams) && it.grams > 0 ? Math.round(it.grams) : undefined,
   }));
 
   // Recompute totals from items so they always reconcile with the breakdown.

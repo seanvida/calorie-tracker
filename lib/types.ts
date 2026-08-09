@@ -7,8 +7,34 @@ export interface Macros {
   fat: number;
 }
 
+/** Calories + macros expressed per 100 g — the basis for gram-based portions. */
+export interface Per100 {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+/** A selectable portion for a food, e.g. { label: "1 cup (~150 g)", grams: 150 }. */
+export interface Portion {
+  label: string;
+  grams: number;
+}
+
+/**
+ * Optional gram-based fields carried by foods that have per-100g data. When
+ * present, the UI offers a portion dropdown and recomputes macros from `per100`.
+ * When absent, a food falls back to its single editable `serving` string.
+ */
+export interface GramBased {
+  per100?: Per100;
+  portions?: Portion[];
+  /** Grams of the default/natural serving. */
+  defaultGrams?: number;
+}
+
 /** An item from the static food catalog (lib/foods.ts). */
-export interface Food extends Macros {
+export interface Food extends Macros, GramBased {
   id: string;
   name: string;
   category: FoodCategory;
@@ -29,14 +55,14 @@ export type FoodCategory =
   | "Eggs";
 
 /** The minimal shape needed to render + log a food (catalog item or search hit). */
-export interface DisplayFood extends Macros {
+export interface DisplayFood extends Macros, GramBased {
   name: string;
   serving: string;
   calories: number;
 }
 
 /** A food from the searchable Supabase catalogue (`foods` table). */
-export interface CatalogFood extends Macros {
+export interface CatalogFood extends Macros, GramBased {
   id: number;
   name: string;
   serving: string;
@@ -50,13 +76,15 @@ export interface CatalogFood extends Macros {
  * *current totals* (already scaled by `servings`); nothing is saved until the
  * user presses "Add meal".
  */
-export interface PendingItem extends Macros {
+export interface PendingItem extends Macros, GramBased {
   key: string;
   name: string;
   serving: string;
-  /** Serving multiplier the user adjusts in 0.5 steps (1, 1.5, 2, …). */
+  /** Serving multiplier the user adjusts in 0.25 steps (1, 1.25, 1.5, …). */
   servings: number;
   calories: number;
+  /** Currently selected portion weight in grams (only for gram-based foods). */
+  grams?: number;
   /** 'catalog' = from the food list/search; 'ai' = a Gemini estimate (flagged). */
   source: "catalog" | "ai";
 }

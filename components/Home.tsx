@@ -16,7 +16,8 @@ import { DEFAULT_GOAL, mealForHour, resolveMacroTargets } from "@/lib/nutrition"
 import { todayKey } from "@/lib/date";
 import { compressImage } from "@/lib/image";
 import { invalidateSummary, refreshSummary } from "@/lib/summaryCache";
-import type { Profile } from "@/lib/types";
+import { buildPortions, scaleFromPer100, toPer100 } from "@/lib/portions";
+import type { Per100, Portion, Profile } from "@/lib/types";
 import AppHeader from "@/components/AppHeader";
 import DailySummary from "@/components/DailySummary";
 import MealSection from "@/components/MealSection";
@@ -603,22 +604,39 @@ function toPending(
   food: DisplayFood | NutritionItem,
   source: PendingItem["source"],
 ): PendingItem {
+  const base = { key: genKey(), name: food.name, servings: 1, source };
+
+  // Resolve gram-based data: catalogue foods may carry per100/portions already;
+  // AI items carry a `grams` weight we convert to per100 on the fly.
+  let per100: Per100 | undefined = (food as DisplayFood).per100;
+  let portions: Portion[] | undefined = (food as DisplayFood).portions;
+  let grams: number | undefined = (food as DisplayFood).defaultGrams;
+  const aiGrams = (food as NutritionItem).grams;
+  if (!per100 && aiGrams && aiGrams > 0) {
+    per100 = toPer100(food, aiGrams);
+    portions = buildPortions(food.serving || `${aiGrams} g`, aiGrams);
+    grams = aiGrams;
+  }
+
+  if (per100 && grams) {
+    const label = portions?.find((p) => p.grams === grams)?.label ?? food.serving ?? `${grams} g`;
+    return { ...base, serving: label, per100, portions, defaultGrams: grams, grams, ...scaleFromPer100(per100, grams, 1) };
+  }
+
+  // Legacy path: single editable serving, macros scaled only by the multiplier.
   return {
-    key: genKey(),
-    name: food.name,
+    ...base,
     serving: food.serving || "1 serving",
-    servings: 1,
     calories: food.calories,
     protein: food.protein,
     carbs: food.carbs,
     fat: food.fat,
-    source,
   };
 }
 
-/** Format a serving multiplier compactly: 1, 1.5, 2 … */
+/** Format a serving multiplier compactly: 1, 1.25, 1.5, 2 … */
 function fmtServings(n: number): string {
-  return Number.isInteger(n) ? `${n}` : n.toFixed(1);
+  return Number.isInteger(n) ? `${n}` : String(Math.round(n * 100) / 100);
 }
 
 function friendlyError(e: unknown): string {

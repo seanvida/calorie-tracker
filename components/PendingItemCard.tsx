@@ -1,5 +1,7 @@
-import type { PendingItem } from "@/lib/types";
+import { useState } from "react";
+import type { PendingItem, Portion } from "@/lib/types";
 import { validateNutrition, type NutritionFlag } from "@/lib/nutrition";
+import { scaleFromPer100 } from "@/lib/portions";
 import ServingStepper from "./ServingStepper";
 
 interface PendingItemCardProps {
@@ -10,19 +12,48 @@ interface PendingItemCardProps {
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 
+const CUSTOM = "__custom__";
+
 /**
  * One editable food awaiting confirmation. Calories/macros are the *totals* for
- * the chosen serving count and recompute live as the servings stepper changes.
- * AI-sourced items are sanity-checked and flagged (but stay fully editable).
+ * the chosen serving count and recompute live as the portion / servings change.
+ * Gram-based foods (with `per100`) show a portion dropdown; others keep a single
+ * editable serving string. AI items are sanity-checked and flagged (still editable).
  */
 export default function PendingItemCard({ item, onChange, onRemove }: PendingItemCardProps) {
   const flags = item.source === "ai" ? validateNutrition(item) : [];
   const flagged = (field: NutritionFlag["field"]) => flags.some((f) => f.field === field);
 
-  // Changing servings scales the totals by the ratio.
+  const gramBased = !!item.per100;
+  const portions: Portion[] = item.portions?.length ? item.portions : [{ label: "100 g", grams: 100 }];
+  const matchIdx = portions.findIndex((p) => p.grams === item.grams);
+  const [custom, setCustom] = useState(gramBased && matchIdx < 0);
+
+  /** Apply a new portion weight, recomputing totals from per-100g × servings. */
+  function applyGrams(grams: number, label: string) {
+    if (!item.per100 || !(grams > 0)) return;
+    onChange({ grams, serving: label, ...scaleFromPer100(item.per100, grams, item.servings || 1) });
+  }
+
+  function onPortionSelect(value: string) {
+    if (value === CUSTOM) {
+      setCustom(true);
+      return;
+    }
+    setCustom(false);
+    const p = portions[Number(value)];
+    if (p) applyGrams(p.grams, p.label);
+  }
+
+  // Changing servings scales the totals. Gram-based foods recompute from per100
+  // (no float drift); legacy foods scale the existing totals by the ratio.
   function setServings(next: number) {
     const prev = item.servings || 1;
     if (next === prev) return;
+    if (gramBased && item.grams) {
+      onChange({ servings: next, ...scaleFromPer100(item.per100!, item.grams, next) });
+      return;
+    }
     const f = next / prev;
     onChange({
       servings: next,
@@ -78,18 +109,46 @@ export default function PendingItemCard({ item, onChange, onRemove }: PendingIte
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="text"
-          value={item.serving}
-          onChange={(e) => onChange({ serving: e.target.value })}
-          placeholder="Serving (e.g. 1 bowl)"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-2 outline-none transition focus:border-matcha"
-        />
+        {gramBased ? (
+          <select
+            aria-label="Portion"
+            value={custom ? CUSTOM : String(matchIdx >= 0 ? matchIdx : 0)}
+            onChange={(e) => onPortionSelect(e.target.value)}
+            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-2 outline-none transition focus:border-matcha"
+          >
+            {portions.map((p, i) => (
+              <option key={i} value={i}>{p.label}</option>
+            ))}
+            <option value={CUSTOM}>Custom (g)…</option>
+          </select>
+        ) : (
+          <input
+            type="text"
+            value={item.serving}
+            onChange={(e) => onChange({ serving: e.target.value })}
+            placeholder="Serving (e.g. 1 bowl)"
+            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-2 outline-none transition focus:border-matcha"
+          />
+        )}
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-ink-3">servings</span>
           <ServingStepper value={item.servings} onChange={setServings} />
         </div>
       </div>
+
+      {gramBased && custom && (
+        <label className="flex items-center gap-2">
+          <span className="text-xs text-ink-3">Grams</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            min={1}
+            value={item.grams ?? ""}
+            onChange={(e) => applyGrams(num(e.target.value), `${num(e.target.value)} g`)}
+            className="nums w-24 rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none transition focus:border-matcha"
+          />
+        </label>
+      )}
 
       <div className="grid grid-cols-4 gap-2">
         {macroField("calories", "kcal", "text-ink-2")}
