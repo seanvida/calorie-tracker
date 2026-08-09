@@ -45,6 +45,8 @@ export default function TrendsView({ goal }: TrendsViewProps) {
 
   const avg = Math.round(logged.reduce((s, d) => s + d.calories, 0) / logged.length);
   const maxCal = Math.max(goal, ...days.map((d) => d.calories)) * 1.1;
+  const anyBurned = days.some((d) => (d.burned ?? 0) > 0);
+  const maxBurned = Math.max(1, ...days.map((d) => d.burned ?? 0)) * 1.1;
 
   return (
     <div className="space-y-6">
@@ -105,6 +107,27 @@ export default function TrendsView({ goal }: TrendsViewProps) {
         </div>
         <Axis days={days} />
       </section>
+
+      {/* Calories burned (workouts) */}
+      {anyBurned && (
+        <section className="space-y-3 rounded-2xl border border-line bg-surface p-4">
+          <header className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-ink">Calories burned</h3>
+            <span className="text-[11px] text-ink-3">workouts</span>
+          </header>
+          <div className="flex h-32 items-end gap-[3px]">
+            {days.map((d) => (
+              <div
+                key={d.day}
+                title={`${formatDayShort(d.day)} · ${d.burned ?? 0} kcal burned`}
+                className={`flex-1 rounded-t-sm ${d.burned ? "bg-fat" : "bg-line"}`}
+                style={{ height: `${Math.max(d.burned ? 3 : 1, ((d.burned ?? 0) / maxBurned) * 100)}%` }}
+              />
+            ))}
+          </div>
+          <Axis days={days} />
+        </section>
+      )}
     </div>
   );
 }

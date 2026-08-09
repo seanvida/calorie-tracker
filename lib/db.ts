@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import type { CatalogFood, DaySummary, LogEntry, NewLogEntry, NewSavedFood, Portion, Profile, SavedFood } from "./types";
+import type { CatalogFood, DaySummary, LogEntry, NewLogEntry, NewSavedFood, NewWorkoutEntry, Portion, Profile, SavedFood, WorkoutEntry } from "./types";
 import type { NutritionResult } from "./gemini";
 
 // Hosted Postgres (Supabase). The connection string lives in DATABASE_URL.
@@ -288,23 +288,85 @@ export async function deleteSavedFood(userId: string, id: number): Promise<boole
   return rows.length > 0;
 }
 
+// ---- Workout entries (calories burned) ----
+
+interface WorkoutRow {
+  id: string | number;
+  activity: string;
+  duration_min: number | null;
+  calories: number;
+  notes: string | null;
+  day: string;
+  created_at: string;
+}
+
+function toWorkout(r: WorkoutRow): WorkoutEntry {
+  return {
+    id: Number(r.id),
+    activity: r.activity,
+    durationMin: r.duration_min,
+    calories: r.calories,
+    notes: r.notes,
+    day: r.day,
+    createdAt: r.created_at,
+  };
+}
+
+export async function getWorkoutsForDay(userId: string, day: string): Promise<WorkoutEntry[]> {
+  const rows = await sql<WorkoutRow[]>`
+    SELECT id, activity, duration_min, calories, notes, day, created_at
+    FROM workout_entries
+    WHERE user_id = ${userId} AND day = ${day}
+    ORDER BY created_at ASC, id ASC`;
+  return rows.map(toWorkout);
+}
+
+export async function addWorkout(userId: string, w: NewWorkoutEntry): Promise<WorkoutEntry> {
+  const [row] = await sql<WorkoutRow[]>`
+    INSERT INTO workout_entries (user_id, activity, duration_min, calories, notes, day)
+    VALUES (${userId}, ${w.activity}, ${w.durationMin ?? null}, ${w.calories}, ${w.notes ?? null}, ${w.day})
+    RETURNING id, activity, duration_min, calories, notes, day, created_at`;
+  return toWorkout(row);
+}
+
+export async function deleteWorkout(userId: string, id: number): Promise<boolean> {
+  const rows = await sql`DELETE FROM workout_entries WHERE id = ${id} AND user_id = ${userId} RETURNING id`;
+  return rows.length > 0;
+}
+
+/** Calories burned per day over a range (for summary/trends). */
+export async function getBurnedByDay(
+  userId: string,
+  from: string,
+  to: string,
+): Promise<{ day: string; burned: number }[]> {
+  const rows = await sql<{ day: string; burned: number }[]>`
+    SELECT day, COALESCE(SUM(calories), 0)::float8 AS burned
+    FROM workout_entries
+    WHERE user_id = ${userId} AND day BETWEEN ${from} AND ${to}
+    GROUP BY day`;
+  return rows.map((r) => ({ day: r.day, burned: Math.round(r.burned) }));
+}
+
 // ---- AI response cache + usage counter (cost guardrails) ----
 
+type AiKind = "text" | "image" | "workout";
+
 /** Return a cached Gemini result for this input, or null on a miss. */
-export async function getAiCache(
-  kind: "text" | "image",
+export async function getAiCache<T = NutritionResult>(
+  kind: AiKind,
   key: string,
-): Promise<NutritionResult | null> {
-  const [row] = await sql<{ result: NutritionResult }[]>`
+): Promise<T | null> {
+  const [row] = await sql<{ result: T }[]>`
     SELECT result FROM ai_cache WHERE kind = ${kind} AND cache_key = ${key} LIMIT 1`;
   return row ? row.result : null;
 }
 
 /** Store a Gemini result so the same input never hits the API again. */
 export async function setAiCache(
-  kind: "text" | "image",
+  kind: AiKind,
   key: string,
-  result: NutritionResult,
+  result: unknown,
 ): Promise<void> {
   await sql`
     INSERT INTO ai_cache (kind, cache_key, result)
@@ -313,7 +375,7 @@ export async function setAiCache(
 }
 
 /** Increment the rough daily counter of real (uncached) Gemini calls. */
-export async function recordAiUsage(route: "text" | "image" | "foods"): Promise<void> {
+export async function recordAiUsage(route: "text" | "image" | "foods" | "workout"): Promise<void> {
   const day = new Date().toISOString().slice(0, 10);
   await sql`
     INSERT INTO ai_usage (day, route, calls) VALUES (${day}, ${route}, 1)

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getDailySummaries } from "@/lib/db";
+import { getBurnedByDay, getDailySummaries } from "@/lib/db";
 import { getUserId } from "@/lib/auth";
+import type { DaySummary } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -26,5 +27,17 @@ export async function GET(request: Request) {
     from = d.toLocaleDateString("en-CA");
   }
 
-  return NextResponse.json({ from, to, days: await getDailySummaries(userId, from, to) });
+  // Food totals + calories burned, merged by day (a workout-only day still shows).
+  const [days, burned] = await Promise.all([
+    getDailySummaries(userId, from, to),
+    getBurnedByDay(userId, from, to),
+  ]);
+  const byDay = new Map<string, DaySummary>(days.map((d) => [d.day, d]));
+  for (const b of burned) {
+    const existing = byDay.get(b.day);
+    if (existing) existing.burned = b.burned;
+    else byDay.set(b.day, { day: b.day, calories: 0, protein: 0, carbs: 0, fat: 0, entries: 0, burned: b.burned });
+  }
+  const merged = [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1));
+  return NextResponse.json({ from, to, days: merged });
 }

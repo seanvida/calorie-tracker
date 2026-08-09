@@ -149,6 +149,30 @@ export interface DailyTotals {
 export interface DaySummary extends DailyTotals {
   day: string; // YYYY-MM-DD
   entries: number;
+  /** Calories burned from logged workouts that day. */
+  burned?: number;
+}
+
+/** A logged workout (calories burned), as stored + returned by the API. */
+export interface WorkoutEntry {
+  id: number;
+  activity: string;
+  /** Optional duration in minutes. */
+  durationMin: number | null;
+  /** Calories burned. */
+  calories: number;
+  notes: string | null;
+  day: string; // YYYY-MM-DD
+  createdAt: string;
+}
+
+/** Payload to POST /api/workouts. */
+export interface NewWorkoutEntry {
+  activity: string;
+  durationMin?: number | null;
+  calories: number;
+  notes?: string | null;
+  day: string;
 }
 
 /** Single-user profile, persisted in Supabase. Drives the daily goal + macros. */

@@ -11,6 +11,8 @@ interface DailySummaryProps {
   onGoalChange: (goal: number) => void;
   /** Explicit macro gram targets (from profile); defaults to the goal split. */
   targets?: MacroTargets;
+  /** Calories burned from workouts today (shown as net; goal stays fixed). */
+  burned?: number;
 }
 
 const STATE_STYLES: Record<ProgressState, { bar: string; chip: string; label: (n: number) => string }> = {
@@ -32,11 +34,13 @@ const STATE_STYLES: Record<ProgressState, { bar: string; chip: string; label: (n
 };
 
 /** The hero card: calories vs goal with a traffic-light bar, plus macros. */
-export default function DailySummary({ totals, goal, onGoalChange, targets }: DailySummaryProps) {
+export default function DailySummary({ totals, goal, onGoalChange, targets, burned = 0 }: DailySummaryProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(goal));
 
   const consumed = Math.round(totals.calories);
+  const burnedR = Math.round(burned);
+  const net = consumed - burnedR;
   const state = calorieState(consumed, goal);
   const style = STATE_STYLES[state];
   const remaining = Math.abs(goal - consumed);
@@ -64,6 +68,12 @@ export default function DailySummary({ totals, goal, onGoalChange, targets }: Da
               / {goal.toLocaleString()} kcal
             </span>
           </div>
+          {burnedR > 0 && (
+            <p className="nums mt-1.5 text-xs text-ink-3">
+              🔥 {burnedR.toLocaleString()} burned · net{" "}
+              <span className="font-semibold text-ink-2">{net.toLocaleString()}</span> kcal
+            </p>
+          )}
         </div>
 
         <span className={`nums shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${style.chip}`}>

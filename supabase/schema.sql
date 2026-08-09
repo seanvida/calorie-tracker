@@ -98,14 +98,29 @@ create table if not exists saved_foods (
 );
 create index if not exists idx_saved_foods_user on saved_foods (user_id, created_at desc);
 
+-- Per-user workout log. Calories burned are AI-estimated (or hand-entered); the
+-- daily food goal stays fixed, but the app surfaces a "net" number + burned trend.
+create table if not exists workout_entries (
+  id           bigint generated always as identity primary key,
+  user_id      uuid        not null,
+  activity     text        not null,
+  duration_min integer,                        -- optional minutes
+  calories     real        not null,           -- calories burned
+  notes        text,
+  day          text        not null,           -- YYYY-MM-DD (local day key)
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_workout_user_day on workout_entries (user_id, day);
+
 -- Per-user isolation. The app's pooled (service-role) connection bypasses RLS,
 -- so queries are also scoped by user_id in code; RLS is the backstop.
 alter table log_entries add column if not exists user_id uuid;
 create index if not exists idx_log_entries_user_day on log_entries (user_id, day);
 
-alter table log_entries enable row level security;
-alter table profiles    enable row level security;
-alter table saved_foods enable row level security;
+alter table log_entries     enable row level security;
+alter table profiles        enable row level security;
+alter table saved_foods     enable row level security;
+alter table workout_entries enable row level security;
 drop policy if exists own_log on log_entries;
 create policy own_log on log_entries
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
@@ -114,4 +129,7 @@ create policy own_profile on profiles
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 drop policy if exists own_saved on saved_foods;
 create policy own_saved on saved_foods
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists own_workout on workout_entries;
+create policy own_workout on workout_entries
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());

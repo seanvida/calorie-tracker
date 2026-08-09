@@ -12,7 +12,7 @@ import {
   type PendingItem,
 } from "@/lib/types";
 import type { NutritionItem, NutritionResult } from "@/lib/gemini";
-import type { SavedFood } from "@/lib/types";
+import type { NewWorkoutEntry, SavedFood, WorkoutEntry } from "@/lib/types";
 import { DEFAULT_GOAL, mealForHour, resolveMacroTargets } from "@/lib/nutrition";
 import { todayKey } from "@/lib/date";
 import { compressImage } from "@/lib/image";
@@ -27,6 +27,7 @@ import SearchBar from "@/components/SearchBar";
 import FoodList from "@/components/FoodList";
 import FoodCard from "@/components/FoodCard";
 import SavedFoodsSection from "@/components/SavedFoodsSection";
+import WorkoutSection from "@/components/WorkoutSection";
 import TextPanel from "@/components/TextPanel";
 import PhotoPanel from "@/components/PhotoPanel";
 import PendingPanel from "@/components/PendingPanel";
@@ -115,6 +116,10 @@ export default function Home() {
   const [savedFoods, setSavedFoods] = useState<SavedFood[]>([]);
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
 
+  // Workouts logged for the selected day (calories burned).
+  const [workouts, setWorkouts] = useState<WorkoutEntry[]>([]);
+  const burned = useMemo(() => workouts.reduce((s, w) => s + w.calories, 0), [workouts]);
+
   // AI lookup state (shared by describe + photo).
   const [description, setDescription] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -142,7 +147,7 @@ export default function Home() {
       .catch(() => setSavedFoods([]));
   }, []);
 
-  // Load the selected day's log (re-runs when you navigate days).
+  // Load the selected day's log + workouts (re-runs when you navigate days).
   useEffect(() => {
     setLoading(true);
     fetch(`/api/log?date=${day}`)
@@ -150,6 +155,10 @@ export default function Home() {
       .then((data) => setEntries(data.entries ?? []))
       .catch(() => setEntries([]))
       .finally(() => setLoading(false));
+    fetch(`/api/workouts?date=${day}`)
+      .then((r) => r.json())
+      .then((data) => setWorkouts(data.workouts ?? []))
+      .catch(() => setWorkouts([]));
   }, [day]);
 
   /** Edit the goal from the hero; persists to the profile in Supabase. */
@@ -390,6 +399,38 @@ export default function Home() {
     }
   }
 
+  /** Log a workout for the selected day. Returns true on success. */
+  async function addWorkout(w: Omit<NewWorkoutEntry, "day">): Promise<boolean> {
+    try {
+      const res = await fetch("/api/workouts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...w, day }),
+      });
+      const data = await res.json();
+      if (res.ok && data.workout) {
+        setWorkouts((prev) => [...prev, data.workout]);
+        invalidateSummary();
+        return true;
+      }
+    } catch {
+      /* fall through */
+    }
+    return false;
+  }
+
+  async function deleteWorkout(id: number) {
+    const prev = workouts;
+    setWorkouts((cur) => cur.filter((w) => w.id !== id));
+    try {
+      const res = await fetch(`/api/workouts/${id}`, { method: "DELETE" });
+      if (!res.ok) setWorkouts(prev);
+      else invalidateSummary();
+    } catch {
+      setWorkouts(prev);
+    }
+  }
+
   /** The only path that writes to the log — runs when "Add meal" is pressed. */
   async function commitPending() {
     if (pending.length === 0) return;
@@ -495,7 +536,7 @@ export default function Home() {
       {view === "day" && (
         <div className="space-y-7">
         <DateNav date={selectedDate} onChange={setSelectedDate} />
-        <DailySummary totals={totals} goal={goal} onGoalChange={updateGoal} targets={targets} />
+        <DailySummary totals={totals} goal={goal} onGoalChange={updateGoal} targets={targets} burned={burned} />
 
         {showGoalNudge && (
           <div className="flex items-center gap-3 rounded-2xl border border-matcha/30 bg-matcha-tint px-4 py-3">
@@ -668,6 +709,9 @@ export default function Home() {
 
           {aiError && <ErrorNote message={aiError} onDismiss={() => setAiError(null)} />}
         </section>
+
+        {/* Workouts (calories burned) — logged per day, shown in trends too. */}
+        <WorkoutSection workouts={workouts} burned={burned} onAdd={addWorkout} onDelete={deleteWorkout} />
         </div>
       )}
       </main>
