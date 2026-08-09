@@ -80,6 +80,24 @@ create table if not exists profiles (
   updated_at     timestamptz not null default now()
 );
 
+-- Per-user saved foods (single custom foods the user re-logs often). Mirrors a
+-- catalogue row but user-scoped + gram-based, so re-logging keeps the portion
+-- dropdown. RLS on.
+create table if not exists saved_foods (
+  id            bigint generated always as identity primary key,
+  user_id       uuid        not null,
+  name          text        not null,
+  serving       text        not null,
+  calories      real        not null,   -- for one serving (at default_grams)
+  protein       real        not null,
+  carbs         real        not null,
+  fat           real        not null,
+  kcal100       real, protein100 real, carbs100 real, fat100 real,
+  portions      jsonb, default_grams real,
+  created_at    timestamptz not null default now()
+);
+create index if not exists idx_saved_foods_user on saved_foods (user_id, created_at desc);
+
 -- Per-user isolation. The app's pooled (service-role) connection bypasses RLS,
 -- so queries are also scoped by user_id in code; RLS is the backstop.
 alter table log_entries add column if not exists user_id uuid;
@@ -87,9 +105,13 @@ create index if not exists idx_log_entries_user_day on log_entries (user_id, day
 
 alter table log_entries enable row level security;
 alter table profiles    enable row level security;
+alter table saved_foods enable row level security;
 drop policy if exists own_log on log_entries;
 create policy own_log on log_entries
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 drop policy if exists own_profile on profiles;
 create policy own_profile on profiles
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists own_saved on saved_foods;
+create policy own_saved on saved_foods
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());

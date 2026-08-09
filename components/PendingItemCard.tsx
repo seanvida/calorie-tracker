@@ -8,6 +8,8 @@ interface PendingItemCardProps {
   item: PendingItem;
   onChange: (patch: Partial<PendingItem>) => void;
   onRemove?: () => void;
+  onSave?: () => void;
+  saved?: boolean;
 }
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
@@ -20,7 +22,7 @@ const CUSTOM = "__custom__";
  * Gram-based foods (with `per100`) show a portion dropdown; others keep a single
  * editable serving string. AI items are sanity-checked and flagged (still editable).
  */
-export default function PendingItemCard({ item, onChange, onRemove }: PendingItemCardProps) {
+export default function PendingItemCard({ item, onChange, onRemove, onSave, saved }: PendingItemCardProps) {
   const flags = item.source === "ai" ? validateNutrition(item) : [];
   const flagged = (field: NutritionFlag["field"]) => flags.some((f) => f.field === field);
 
@@ -96,6 +98,17 @@ export default function PendingItemCard({ item, onChange, onRemove }: PendingIte
           placeholder="Food name"
           className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm font-semibold text-ink outline-none transition focus:border-matcha"
         />
+        {onSave && (
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saved}
+            aria-label="Save food"
+            className="shrink-0 rounded-lg px-2 py-1.5 text-xs font-semibold text-matcha-deep transition hover:bg-matcha-tint disabled:opacity-60"
+          >
+            {saved ? "Saved ✓" : "★ Save"}
+          </button>
+        )}
         {onRemove && (
           <button
             type="button"

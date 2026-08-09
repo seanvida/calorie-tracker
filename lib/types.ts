@@ -71,6 +71,23 @@ export interface CatalogFood extends Macros, GramBased {
   source: "seed" | "gemini";
 }
 
+/** A single custom food the user saved (per-user) to re-log quickly. */
+export interface SavedFood extends Macros, GramBased {
+  id: number;
+  name: string;
+  serving: string;
+  /** Calories for one serving (at defaultGrams). */
+  calories: number;
+  createdAt: string;
+}
+
+/** Payload to save a food (POST /api/saved-foods) — one serving's values. */
+export interface NewSavedFood extends Macros, GramBased {
+  name: string;
+  serving: string;
+  calories: number;
+}
+
 /**
  * A food staged in the review-before-commit panel. Its calories/macros are the
  * *current totals* (already scaled by `servings`); nothing is saved until the

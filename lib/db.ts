@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import type { CatalogFood, DaySummary, LogEntry, NewLogEntry, Portion, Profile } from "./types";
+import type { CatalogFood, DaySummary, LogEntry, NewLogEntry, NewSavedFood, Portion, Profile, SavedFood } from "./types";
 import type { NutritionResult } from "./gemini";
 
 // Hosted Postgres (Supabase). The connection string lives in DATABASE_URL.
@@ -228,6 +228,64 @@ export async function addCatalogFood(f: {
     SELECT ${CATALOG_COLS}
     FROM foods WHERE lower(name) = lower(${f.name}) LIMIT 1`;
   return toCatalog(existing);
+}
+
+// ---- Saved foods (per-user custom foods to re-log) ----
+
+interface SavedRow extends CatalogRow {
+  user_id: string;
+  created_at: string;
+}
+
+const SAVED_COLS = sql`id, name, serving, calories, protein, carbs, fat,
+  kcal100, protein100, carbs100, fat100, portions, default_grams, created_at`;
+
+function toSaved(r: SavedRow): SavedFood {
+  const food: SavedFood = {
+    id: Number(r.id),
+    name: r.name,
+    serving: r.serving,
+    calories: r.calories,
+    protein: r.protein,
+    carbs: r.carbs,
+    fat: r.fat,
+    createdAt: r.created_at,
+  };
+  if (r.kcal100 != null) {
+    food.per100 = { calories: r.kcal100, protein: r.protein100 ?? 0, carbs: r.carbs100 ?? 0, fat: r.fat100 ?? 0 };
+    if (Array.isArray(r.portions) && r.portions.length) food.portions = r.portions;
+    if (r.default_grams != null) food.defaultGrams = r.default_grams;
+  }
+  return food;
+}
+
+export async function getSavedFoods(userId: string): Promise<SavedFood[]> {
+  const rows = await sql<SavedRow[]>`
+    SELECT ${SAVED_COLS} FROM saved_foods
+    WHERE user_id = ${userId}
+    ORDER BY created_at DESC, id DESC`;
+  return rows.map(toSaved);
+}
+
+export async function createSavedFood(userId: string, f: NewSavedFood): Promise<SavedFood> {
+  const p = f.per100 ?? null;
+  const portions = f.portions?.length
+    ? sql.json(f.portions as unknown as Parameters<typeof sql.json>[0])
+    : null;
+  const [row] = await sql<SavedRow[]>`
+    INSERT INTO saved_foods (user_id, name, serving, calories, protein, carbs, fat,
+                             kcal100, protein100, carbs100, fat100, portions, default_grams)
+    VALUES (${userId}, ${f.name}, ${f.serving}, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat},
+            ${p?.calories ?? null}, ${p?.protein ?? null}, ${p?.carbs ?? null}, ${p?.fat ?? null},
+            ${portions}, ${f.defaultGrams ?? null})
+    RETURNING ${SAVED_COLS}`;
+  return toSaved(row);
+}
+
+/** Delete a saved food. Returns true if a row was removed (owned by the user). */
+export async function deleteSavedFood(userId: string, id: number): Promise<boolean> {
+  const rows = await sql`DELETE FROM saved_foods WHERE id = ${id} AND user_id = ${userId} RETURNING id`;
+  return rows.length > 0;
 }
 
 // ---- AI response cache + usage counter (cost guardrails) ----

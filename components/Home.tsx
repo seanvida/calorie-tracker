@@ -12,6 +12,7 @@ import {
   type PendingItem,
 } from "@/lib/types";
 import type { NutritionItem, NutritionResult } from "@/lib/gemini";
+import type { SavedFood } from "@/lib/types";
 import { DEFAULT_GOAL, mealForHour, resolveMacroTargets } from "@/lib/nutrition";
 import { todayKey } from "@/lib/date";
 import { compressImage } from "@/lib/image";
@@ -25,6 +26,7 @@ import MealPicker from "@/components/MealPicker";
 import SearchBar from "@/components/SearchBar";
 import FoodList from "@/components/FoodList";
 import FoodCard from "@/components/FoodCard";
+import SavedFoodsSection from "@/components/SavedFoodsSection";
 import TextPanel from "@/components/TextPanel";
 import PhotoPanel from "@/components/PhotoPanel";
 import PendingPanel from "@/components/PendingPanel";
@@ -104,6 +106,10 @@ export default function Home() {
   const [aiNote, setAiNote] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
+  // Saved custom foods (per-user), browsable when the search box is empty.
+  const [savedFoods, setSavedFoods] = useState<SavedFood[]>([]);
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
+
   // AI lookup state (shared by describe + photo).
   const [description, setDescription] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -123,6 +129,11 @@ export default function Home() {
     setMealTarget(mealForHour(new Date().getHours()));
     // Warm the History/Trends summary in the background so those tabs open instantly.
     refreshSummary();
+    // Load the user's saved custom foods.
+    fetch("/api/saved-foods")
+      .then((r) => r.json())
+      .then((d) => setSavedFoods(d.foods ?? []))
+      .catch(() => setSavedFoods([]));
   }, []);
 
   // Load the selected day's log (re-runs when you navigate days).
@@ -331,6 +342,44 @@ export default function Home() {
     setAiError(null);
   }
 
+  /** Save a pending item as a reusable custom food (normalized to one serving). */
+  async function saveFood(key: string) {
+    const it = pending.find((p) => p.key === key);
+    if (!it) return;
+    const s = it.servings || 1;
+    const r1 = (v: number) => Math.round(v * 10) / 10;
+    // Store one serving's values (strip the multiplier), keeping gram-based data.
+    const unit =
+      it.per100 && it.grams
+        ? { ...scaleFromPer100(it.per100, it.grams, 1), per100: it.per100, portions: it.portions, defaultGrams: it.grams }
+        : { calories: Math.round(it.calories / s), protein: r1(it.protein / s), carbs: r1(it.carbs / s), fat: r1(it.fat / s) };
+    try {
+      const res = await fetch("/api/saved-foods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: it.name.trim() || "Food", serving: it.serving, ...unit }),
+      });
+      const data = await res.json();
+      if (res.ok && data.food) {
+        setSavedFoods((prev) => [data.food, ...prev]);
+        setSavedKeys((prev) => new Set(prev).add(key));
+      }
+    } catch {
+      /* non-fatal — saving is a convenience */
+    }
+  }
+
+  async function deleteSavedFood(id: number) {
+    const prev = savedFoods;
+    setSavedFoods((cur) => cur.filter((f) => f.id !== id));
+    try {
+      const res = await fetch(`/api/saved-foods/${id}`, { method: "DELETE" });
+      if (!res.ok) setSavedFoods(prev);
+    } catch {
+      setSavedFoods(prev);
+    }
+  }
+
   /** The only path that writes to the log — runs when "Add meal" is pressed. */
   async function commitPending() {
     if (pending.length === 0) return;
@@ -515,8 +564,11 @@ export default function Home() {
               <SearchBar value={query} onChange={setQuery} resultCount={resultCount} />
               <div className="max-h-[56vh] overflow-y-auto rounded-2xl border border-line bg-surface/40 p-3 [scrollbar-color:#DED3C0_transparent] [scrollbar-width:thin]">
                 {!query.trim() ? (
-                  // Empty query: browse the curated Indian core, grouped by category.
-                  <FoodList foods={FOODS} onAdd={addCatalogToPending} />
+                  // Empty query: your saved foods, then the curated Indian core.
+                  <>
+                    <SavedFoodsSection foods={savedFoods} onAdd={addCatalogToPending} onDelete={deleteSavedFood} />
+                    <FoodList foods={FOODS} onAdd={addCatalogToPending} />
+                  </>
                 ) : searching ? (
                   <div className="flex items-center justify-center gap-2 py-10 text-sm text-ink-3">
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-line-2 border-t-matcha" />
@@ -575,6 +627,8 @@ export default function Home() {
             note={aiNote}
             onChangeItem={updatePending}
             onRemoveItem={removePending}
+            onSaveItem={saveFood}
+            savedKeys={savedKeys}
             onCommit={commitPending}
             onClear={clearPending}
             adding={adding}

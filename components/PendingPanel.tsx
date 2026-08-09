@@ -7,6 +7,8 @@ interface PendingPanelProps {
   note?: string | null;
   onChangeItem: (key: string, patch: Partial<PendingItem>) => void;
   onRemoveItem: (key: string) => void;
+  onSaveItem?: (key: string) => void;
+  savedKeys?: Set<string>;
   onCommit: () => void;
   onClear: () => void;
   adding: boolean;
@@ -22,6 +24,8 @@ export default function PendingPanel({
   note,
   onChangeItem,
   onRemoveItem,
+  onSaveItem,
+  savedKeys,
   onCommit,
   onClear,
   adding,
@@ -53,6 +57,8 @@ export default function PendingPanel({
             item={item}
             onChange={(patch) => onChangeItem(item.key, patch)}
             onRemove={removable ? () => onRemoveItem(item.key) : undefined}
+            onSave={onSaveItem ? () => onSaveItem(item.key) : undefined}
+            saved={savedKeys?.has(item.key)}
           />
         ))}
       </div>

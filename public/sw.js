@@ -3,7 +3,7 @@
 // Bump CACHE on shell changes: `activate` purges every older cache, which also
 // clears any stale HTML that still points at old /_next chunks (the cause of the
 // blank-screen-on-launch bug).
-const CACHE = "thali-v4";
+const CACHE = "thali-v5";
 const SHELL = ["/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
