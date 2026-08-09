@@ -7,15 +7,16 @@ import PwaRegister from "@/components/PwaRegister";
 // used for the wordmark and the big nutrition figures.
 const display = Fraunces({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  style: ["normal", "italic"],
+  // Trimmed to the weights actually used (no italic — it wasn't referenced), to
+  // cut ~half the font payload and speed up text paint.
+  weight: ["400", "600", "700"],
   variable: "--font-display",
 });
 
 // Body: Hanken Grotesk — a clean, friendly grotesque with great numerals.
 const body = Hanken_Grotesk({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600"],
   variable: "--font-body",
 });
 

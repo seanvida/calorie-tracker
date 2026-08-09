@@ -16,7 +16,7 @@ import type { NewWorkoutEntry, SavedFood, WorkoutEntry } from "@/lib/types";
 import { DEFAULT_GOAL, mealForHour, resolveMacroTargets } from "@/lib/nutrition";
 import { todayKey } from "@/lib/date";
 import { compressImage } from "@/lib/image";
-import { invalidateSummary, refreshSummary } from "@/lib/summaryCache";
+import { invalidateSummary, seedSummary } from "@/lib/summaryCache";
 import { buildPortions, scaleFromPer100, toPer100 } from "@/lib/portions";
 import type { Per100, Portion, Profile } from "@/lib/types";
 import AppHeader from "@/components/AppHeader";
@@ -131,34 +131,34 @@ export default function Home() {
   const pendingRef = useRef<HTMLDivElement>(null);
   const day = selectedDate;
 
-  // Load the profile + default the add target to the current meal (client-only).
+  // One round-trip for the day-independent data: profile + saved foods + the
+  // 30-day summary (seeded into the History/Trends cache so those open instantly).
   useEffect(() => {
-    fetch("/api/profile")
-      .then((r) => r.json())
-      .then((d) => d.profile && setProfile(d.profile))
-      .catch(() => setProfile(DEFAULT_PROFILE));
     setMealTarget(mealForHour(new Date().getHours()));
-    // Warm the History/Trends summary in the background so those tabs open instantly.
-    refreshSummary();
-    // Load the user's saved custom foods.
-    fetch("/api/saved-foods")
+    fetch("/api/bootstrap")
       .then((r) => r.json())
-      .then((d) => setSavedFoods(d.foods ?? []))
-      .catch(() => setSavedFoods([]));
+      .then((d) => {
+        setProfile(d.profile ?? DEFAULT_PROFILE);
+        setSavedFoods(d.savedFoods ?? []);
+        if (d.summary) seedSummary(d.summary);
+      })
+      .catch(() => setProfile(DEFAULT_PROFILE));
   }, []);
 
-  // Load the selected day's log + workouts (re-runs when you navigate days).
+  // Load the selected day's log + workouts in one round-trip (re-runs per day).
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/log?date=${day}`)
+    fetch(`/api/day?date=${day}`)
       .then((r) => r.json())
-      .then((data) => setEntries(data.entries ?? []))
-      .catch(() => setEntries([]))
+      .then((data) => {
+        setEntries(data.entries ?? []);
+        setWorkouts(data.workouts ?? []);
+      })
+      .catch(() => {
+        setEntries([]);
+        setWorkouts([]);
+      })
       .finally(() => setLoading(false));
-    fetch(`/api/workouts?date=${day}`)
-      .then((r) => r.json())
-      .then((data) => setWorkouts(data.workouts ?? []))
-      .catch(() => setWorkouts([]));
   }, [day]);
 
   /** Edit the goal from the hero; persists to the profile in Supabase. */

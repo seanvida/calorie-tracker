@@ -76,6 +76,11 @@ export function refreshSummary(): Promise<SummaryResponse | null> {
   return inflight;
 }
 
+/** Seed the cache from an already-fetched payload (e.g. /api/bootstrap). */
+export function seedSummary(data: SummaryResponse) {
+  setData(data);
+}
+
 /** Drop the cache so the next read refetches (call after logging changes). */
 export function invalidateSummary() {
   snapshot = { data: null, error: false };

@@ -479,3 +479,18 @@ export async function getDailySummaries(userId: string, from: string, to: string
     entries: r.entries,
   }));
 }
+
+/** Per-day food totals merged with calories burned (a workout-only day is kept). */
+export async function getSummaryDays(userId: string, from: string, to: string): Promise<DaySummary[]> {
+  const [days, burned] = await Promise.all([
+    getDailySummaries(userId, from, to),
+    getBurnedByDay(userId, from, to),
+  ]);
+  const byDay = new Map<string, DaySummary>(days.map((d) => [d.day, d]));
+  for (const b of burned) {
+    const existing = byDay.get(b.day);
+    if (existing) existing.burned = b.burned;
+    else byDay.set(b.day, { day: b.day, calories: 0, protein: 0, carbs: 0, fat: 0, entries: 0, burned: b.burned });
+  }
+  return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1));
+}
