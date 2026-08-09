@@ -53,6 +53,10 @@ const DEFAULT_PROFILE: Profile = {
   onboarded: true,
 };
 
+// Show only the closest few search matches — the catalogue can return many, but
+// a short list keeps the add flow clean (ranking surfaces exact/prefix first).
+const MAX_RESULTS = 8;
+
 type Mode = "quick" | "describe" | "photo";
 const MODES: { id: Mode; label: string }[] = [
   { id: "quick", label: "Quick add" },
@@ -92,6 +96,7 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("quick");
   const [mealTarget, setMealTarget] = useState<MealCategory>("Snack");
   const [query, setQuery] = useState("");
+  const [showBrowse, setShowBrowse] = useState(false);
   const [goalNudgeDismissed, setGoalNudgeDismissed] = useState(false);
 
   // Catalogue search (server-side): hits Supabase first, Gemini on a miss.
@@ -118,6 +123,7 @@ export default function Home() {
   const [aiError, setAiError] = useState<string | null>(null);
 
   const addRef = useRef<HTMLDivElement>(null);
+  const pendingRef = useRef<HTMLDivElement>(null);
   const day = selectedDate;
 
   // Load the profile + default the add target to the current meal (client-only).
@@ -239,6 +245,10 @@ export default function Home() {
   function addCatalogToPending(food: DisplayFood) {
     setPending((prev) => [...prev, toPending(food, "catalog")]);
     setAiNote(null);
+    // Clear the search so the results list gets out of the way, and bring the
+    // review card (now at the top of the add tool) into view.
+    setQuery("");
+    requestAnimationFrame(() => pendingRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
   }
 
   async function deleteEntry(id: number) {
@@ -559,18 +569,31 @@ export default function Home() {
             ))}
           </div>
 
+          {/* Review-before-commit sits at the top of the tool so a tapped item's
+              "Add meal" is visible without scrolling past the list. Shared by
+              quick-add, describe, and photo. */}
+          <div ref={pendingRef} className="scroll-mt-20">
+            <PendingPanel
+              items={pending}
+              note={aiNote}
+              onChangeItem={updatePending}
+              onRemoveItem={removePending}
+              onSaveItem={saveFood}
+              savedKeys={savedKeys}
+              onCommit={commitPending}
+              onClear={clearPending}
+              adding={adding}
+            />
+          </div>
+
           {mode === "quick" && (
             <div className="space-y-3">
               <SearchBar value={query} onChange={setQuery} resultCount={resultCount} />
-              <div className="max-h-[56vh] overflow-y-auto rounded-2xl border border-line bg-surface/40 p-3 [scrollbar-color:#DED3C0_transparent] [scrollbar-width:thin]">
-                {!query.trim() ? (
-                  // Empty query: your saved foods, then the curated Indian core.
-                  <>
-                    <SavedFoodsSection foods={savedFoods} onAdd={addCatalogToPending} onDelete={deleteSavedFood} />
-                    <FoodList foods={FOODS} onAdd={addCatalogToPending} />
-                  </>
-                ) : searching ? (
-                  <div className="flex items-center justify-center gap-2 py-10 text-sm text-ink-3">
+
+              {query.trim() ? (
+                // Searching: show only the closest few matches, sized to content.
+                searching ? (
+                  <div className="flex items-center justify-center gap-2 py-8 text-sm text-ink-3">
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-line-2 border-t-matcha" />
                     Searching the catalogue…
                   </div>
@@ -590,13 +613,37 @@ export default function Home() {
                       </p>
                     )}
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {results.map((food) => (
+                      {results.slice(0, MAX_RESULTS).map((food) => (
                         <FoodCard key={food.id} food={food} onAdd={addCatalogToPending} />
                       ))}
                     </div>
+                    {results.length > MAX_RESULTS && (
+                      <p className="px-1 text-center text-xs text-ink-3">
+                        Showing the {MAX_RESULTS} closest matches — keep typing to narrow it down.
+                      </p>
+                    )}
                   </div>
-                )}
-              </div>
+                )
+              ) : (
+                // Empty query: your saved foods + a collapsible browse of the core.
+                <div className="space-y-2">
+                  <SavedFoodsSection foods={savedFoods} onAdd={addCatalogToPending} onDelete={deleteSavedFood} />
+                  <button
+                    type="button"
+                    onClick={() => setShowBrowse((v) => !v)}
+                    aria-expanded={showBrowse}
+                    className="flex w-full items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 text-sm font-semibold text-ink-2 transition hover:bg-paper-2"
+                  >
+                    <span>Browse common foods</span>
+                    <span className={`text-ink-3 transition-transform ${showBrowse ? "rotate-180" : ""}`}>▾</span>
+                  </button>
+                  {showBrowse && (
+                    <div className="max-h-[52vh] overflow-y-auto rounded-2xl border border-line bg-surface/40 p-3 [scrollbar-color:#DED3C0_transparent] [scrollbar-width:thin]">
+                      <FoodList foods={FOODS} onAdd={addCatalogToPending} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -620,19 +667,6 @@ export default function Home() {
           )}
 
           {aiError && <ErrorNote message={aiError} onDismiss={() => setAiError(null)} />}
-
-          {/* Review-before-commit: shared by quick-add, describe, and photo. */}
-          <PendingPanel
-            items={pending}
-            note={aiNote}
-            onChangeItem={updatePending}
-            onRemoveItem={removePending}
-            onSaveItem={saveFood}
-            savedKeys={savedKeys}
-            onCommit={commitPending}
-            onClear={clearPending}
-            adding={adding}
-          />
         </section>
         </div>
       )}
