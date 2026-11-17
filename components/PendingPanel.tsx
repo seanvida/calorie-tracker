@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { PendingItem } from "@/lib/types";
 import PendingItemCard from "./PendingItemCard";
 import Spinner from "./Spinner";
@@ -19,7 +20,7 @@ interface PendingPanelProps {
  * here: the user edits each item — name, serving, 0.5-step servings, macros —
  * and nothing is saved until "Add meal".
  */
-export default function PendingPanel({
+export default memo(function PendingPanel({
   items,
   note,
   onChangeItem,
@@ -81,4 +82,4 @@ export default function PendingPanel({
       </div>
     </div>
   );
-}
+});

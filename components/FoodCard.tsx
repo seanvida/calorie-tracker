@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { DisplayFood } from "@/lib/types";
 
 interface FoodCardProps {
@@ -6,7 +7,7 @@ interface FoodCardProps {
   busy?: boolean;
 }
 
-export default function FoodCard({ food, onAdd, busy }: FoodCardProps) {
+export default memo(function FoodCard({ food, onAdd, busy }: FoodCardProps) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-surface p-3 shadow-card transition hover:border-line-2 hover:shadow-lift">
       <div className="min-w-0">
@@ -28,4 +29,4 @@ export default function FoodCard({ food, onAdd, busy }: FoodCardProps) {
       </button>
     </div>
   );
-}
+});

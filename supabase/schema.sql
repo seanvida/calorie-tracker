@@ -133,3 +133,17 @@ create policy own_saved on saved_foods
 drop policy if exists own_workout on workout_entries;
 create policy own_workout on workout_entries
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Covering indexes: include created_at so ORDER BY created_at ASC is served by
+-- the index scan rather than a separate sort step (most frequent query path).
+create index if not exists idx_log_entries_user_day_time
+  on log_entries (user_id, day, created_at asc, id asc);
+
+create index if not exists idx_workout_user_day_time
+  on workout_entries (user_id, day, created_at asc, id asc);
+
+-- Trigram index for ILIKE catalogue search — replaces the sequential scan that
+-- a leading-wildcard ILIKE ('%token%') causes on the foods table.
+create extension if not exists pg_trgm;
+create index if not exists idx_foods_name_trgm
+  on foods using gin (name gin_trgm_ops);

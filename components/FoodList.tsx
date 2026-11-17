@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { DisplayFood, Food } from "@/lib/types";
 import FoodCard from "./FoodCard";
 
@@ -8,7 +9,7 @@ interface FoodListProps {
 }
 
 /** Groups the (already filtered) foods by category and renders cards. */
-export default function FoodList({ foods, onAdd, busyName }: FoodListProps) {
+export default memo(function FoodList({ foods, onAdd, busyName }: FoodListProps) {
   if (foods.length === 0) {
     return (
       <p className="rounded-2xl border border-dashed border-line-2 bg-surface/50 p-6 text-center text-sm text-ink-3">
@@ -37,4 +38,4 @@ export default function FoodList({ foods, onAdd, busyName }: FoodListProps) {
       ))}
     </div>
   );
-}
+});

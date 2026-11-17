@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FOODS } from "@/lib/foods";
 import {
   MEALS,
@@ -34,9 +34,9 @@ import PendingPanel from "@/components/PendingPanel";
 import ErrorNote from "@/components/ErrorNote";
 import BottomNav, { type View } from "@/components/BottomNav";
 import DateNav from "@/components/DateNav";
-import HistoryView from "@/components/HistoryView";
-import TrendsView from "@/components/TrendsView";
-import ProfileView from "@/components/ProfileView";
+const HistoryView = lazy(() => import("@/components/HistoryView"));
+const TrendsView  = lazy(() => import("@/components/TrendsView"));
+const ProfileView = lazy(() => import("@/components/ProfileView"));
 import Onboarding from "@/components/Onboarding";
 
 const DEFAULT_PROFILE: Profile = {
@@ -162,7 +162,7 @@ export default function Home() {
   }, [day]);
 
   /** Edit the goal from the hero; persists to the profile in Supabase. */
-  function updateGoal(next: number) {
+  const updateGoal = useCallback((next: number) => {
     const updated: Profile = { ...(profile ?? DEFAULT_PROFILE), calorieGoal: next };
     setProfile(updated);
     fetch("/api/profile", {
@@ -173,10 +173,10 @@ export default function Home() {
       .then((r) => r.json())
       .then((d) => d.profile && setProfile(d.profile))
       .catch(() => {});
-  }
+  }, [profile]);
 
   /** Save body weight (used by the workout calculator); persists to the profile. */
-  function saveWeight(kg: number) {
+  const saveWeight = useCallback((kg: number) => {
     const updated: Profile = { ...(profile ?? DEFAULT_PROFILE), weightKg: kg };
     setProfile(updated);
     fetch("/api/profile", {
@@ -187,7 +187,7 @@ export default function Home() {
       .then((r) => r.json())
       .then((d) => d.profile && setProfile(d.profile))
       .catch(() => {});
-  }
+  }, [profile]);
 
   const totals = useMemo<DailyTotals>(
     () =>
@@ -265,16 +265,16 @@ export default function Home() {
   }
 
   /** Quick-add / search: stage a catalogue food into the review panel. */
-  function addCatalogToPending(food: DisplayFood) {
+  const addCatalogToPending = useCallback((food: DisplayFood) => {
     setPending((prev) => [...prev, toPending(food, "catalog")]);
     setAiNote(null);
     // Clear the search so the results list gets out of the way, and bring the
     // review card (now at the top of the add tool) into view.
     setQuery("");
     requestAnimationFrame(() => pendingRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
-  }
+  }, []);
 
-  async function deleteEntry(id: number) {
+  const deleteEntry = useCallback(async (id: number) => {
     setDeletingId(id);
     const prev = entries;
     setEntries((cur) => cur.filter((e) => e.id !== id));
@@ -287,10 +287,10 @@ export default function Home() {
     } finally {
       setDeletingId(null);
     }
-  }
+  }, [entries]);
 
   /** Change an entry's serving count, persisting it (optimistic + rollback). */
-  async function updateQty(id: number, qty: number) {
+  const updateQty = useCallback(async (id: number, qty: number) => {
     if (qty < 1) return;
     setUpdatingId(id);
     const prev = entries;
@@ -308,7 +308,7 @@ export default function Home() {
     } finally {
       setUpdatingId(null);
     }
-  }
+  }, [entries]);
 
   // ---- AI flows: lookups stage editable items into `pending` ----
   function showItems(result: NutritionResult): boolean {
@@ -361,22 +361,22 @@ export default function Home() {
   }
 
   // ---- Review panel: edit, remove, and finally commit ----
-  function updatePending(key: string, patch: Partial<PendingItem>) {
+  const updatePending = useCallback((key: string, patch: Partial<PendingItem>) => {
     setPending((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)));
-  }
+  }, []);
 
-  function removePending(key: string) {
+  const removePending = useCallback((key: string) => {
     setPending((prev) => prev.filter((it) => it.key !== key));
-  }
+  }, []);
 
-  function clearPending() {
+  const clearPending = useCallback(() => {
     setPending([]);
     setAiNote(null);
     setAiError(null);
-  }
+  }, []);
 
   /** Save a pending item as a reusable custom food (normalized to one serving). */
-  async function saveFood(key: string) {
+  const saveFood = useCallback(async (key: string) => {
     const it = pending.find((p) => p.key === key);
     if (!it) return;
     const s = it.servings || 1;
@@ -400,9 +400,9 @@ export default function Home() {
     } catch {
       /* non-fatal — saving is a convenience */
     }
-  }
+  }, [pending]);
 
-  async function deleteSavedFood(id: number) {
+  const deleteSavedFood = useCallback(async (id: number) => {
     const prev = savedFoods;
     setSavedFoods((cur) => cur.filter((f) => f.id !== id));
     try {
@@ -411,10 +411,10 @@ export default function Home() {
     } catch {
       setSavedFoods(prev);
     }
-  }
+  }, [savedFoods]);
 
   /** Log a workout for the selected day. Returns true on success. */
-  async function addWorkout(w: Omit<NewWorkoutEntry, "day">): Promise<boolean> {
+  const addWorkout = useCallback(async (w: Omit<NewWorkoutEntry, "day">): Promise<boolean> => {
     try {
       const res = await fetch("/api/workouts", {
         method: "POST",
@@ -431,9 +431,9 @@ export default function Home() {
       /* fall through */
     }
     return false;
-  }
+  }, [day]);
 
-  async function deleteWorkout(id: number) {
+  const deleteWorkout = useCallback(async (id: number) => {
     const prev = workouts;
     setWorkouts((cur) => cur.filter((w) => w.id !== id));
     try {
@@ -443,10 +443,10 @@ export default function Home() {
     } catch {
       setWorkouts(prev);
     }
-  }
+  }, [workouts]);
 
   /** The only path that writes to the log — runs when "Add meal" is pressed. */
-  async function commitPending() {
+  const commitPending = useCallback(async () => {
     if (pending.length === 0) return;
     setAdding(true);
     setAiError(null);
@@ -477,36 +477,37 @@ export default function Home() {
     } finally {
       setAdding(false);
     }
-  }
+  // clearImage is useCallback([], []) — stable ref, safe to omit from deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, mealTarget, day]);
 
-  async function selectImage(file: File) {
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
+  const selectImage = useCallback(async (file: File) => {
+    setImagePreview((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
     const compressed = await compressImage(file);
     setImageFile(compressed);
     setImagePreview(URL.createObjectURL(compressed));
     setAiError(null);
-  }
+  }, []);
 
-  function clearImage() {
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
+  const clearImage = useCallback(() => {
+    setImagePreview((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
     setImageFile(null);
-    setImagePreview(null);
-  }
+  }, []);
 
-  function switchMode(next: Mode) {
+  const switchMode = useCallback((next: Mode) => {
     setMode(next);
     setAiError(null);
-  }
+  }, []);
 
   /** "+ Add" from a meal section: aim the add tool at that meal and scroll to it. */
-  function addToMeal(meal: MealCategory) {
+  const addToMeal = useCallback((meal: MealCategory) => {
     setMealTarget(meal);
     addRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+  }, []);
 
-  function scrollToAdd() {
+  const scrollToAdd = useCallback(() => {
     addRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+  }, []);
 
   const isToday = selectedDate === todayKey();
   const showGoalNudge = goal === DEFAULT_GOAL && !goalNudgeDismissed && profile?.onboarded;
@@ -519,31 +520,37 @@ export default function Home() {
         {view === "history" && (
           <div className="space-y-5">
             <h1 className="font-display text-xl font-semibold text-ink">History</h1>
-            <HistoryView
-              goal={goal}
-              onOpenDay={(d) => {
-                setSelectedDate(d);
-                setView("day");
-              }}
-            />
+            <Suspense fallback={<div className="h-64 animate-pulse rounded-2xl bg-surface/60" />}>
+              <HistoryView
+                goal={goal}
+                onOpenDay={(d) => {
+                  setSelectedDate(d);
+                  setView("day");
+                }}
+              />
+            </Suspense>
           </div>
         )}
 
         {view === "trends" && (
           <div className="space-y-5">
             <h1 className="font-display text-xl font-semibold text-ink">Trends</h1>
-            <TrendsView goal={goal} />
+            <Suspense fallback={<div className="h-64 animate-pulse rounded-2xl bg-surface/60" />}>
+              <TrendsView goal={goal} />
+            </Suspense>
           </div>
         )}
 
         {view === "profile" && (
           <div className="space-y-5">
             <h1 className="font-display text-xl font-semibold text-ink">Profile</h1>
-            {profile ? (
-              <ProfileView profile={profile} onSaved={setProfile} />
-            ) : (
-              <div className="h-64 animate-pulse rounded-2xl bg-surface/60" />
-            )}
+            <Suspense fallback={<div className="h-64 animate-pulse rounded-2xl bg-surface/60" />}>
+              {profile ? (
+                <ProfileView profile={profile} onSaved={setProfile} />
+              ) : (
+                <div className="h-64 animate-pulse rounded-2xl bg-surface/60" />
+              )}
+            </Suspense>
           </div>
         )}
 

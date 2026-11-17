@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { NewWorkoutEntry, WorkoutEntry } from "@/lib/types";
 import { ACTIVITIES, INTENSITIES, caloriesBurned } from "@/lib/workouts";
 import Spinner from "./Spinner";
@@ -16,7 +16,7 @@ interface WorkoutSectionProps {
 }
 
 /** Day-view workout log: pick an activity + minutes → MET-based calories (no AI). */
-export default function WorkoutSection({
+export default memo(function WorkoutSection({
   workouts,
   burned,
   weightKg,
@@ -194,4 +194,4 @@ export default function WorkoutSection({
       )}
     </section>
   );
-}
+});

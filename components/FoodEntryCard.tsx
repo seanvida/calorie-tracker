@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { LogEntry } from "@/lib/types";
 
 interface FoodEntryCardProps {
@@ -11,7 +12,7 @@ interface FoodEntryCardProps {
 const MAX_QTY = 99;
 
 /** A single logged food, shown as a card with an editable serving stepper. */
-export default function FoodEntryCard({
+export default memo(function FoodEntryCard({
   entry,
   onDelete,
   onUpdateQty,
@@ -77,7 +78,7 @@ export default function FoodEntryCard({
       </button>
     </div>
   );
-}
+});
 
 function StepButton({
   children,

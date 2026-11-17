@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { LogEntry, MealCategory } from "@/lib/types";
 import FoodEntryCard from "./FoodEntryCard";
 
@@ -24,7 +25,7 @@ const ICONS: Record<MealCategory, string> = {
 };
 
 /** One meal group (Breakfast / Lunch / Dinner / Snack) with its entries. */
-export default function MealSection({
+export default memo(function MealSection({
   meal,
   entries,
   onDelete,
@@ -80,4 +81,4 @@ export default function MealSection({
       )}
     </section>
   );
-}
+});
